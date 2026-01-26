@@ -1,5 +1,5 @@
 import type { ContentType } from '../../types';
-import { fetchSubtitleLines, fetchVideoView } from './bilibili';
+import { fetchSubtitleLines, fetchVideoView, SubtitleLoginRequiredError } from './bilibili';
 import { getEmbedding, listSegments, putEmbedding, putSegments, upsertVideo, type SegmentRecord } from './db';
 import { analyzeCaptionChunkWithGemini } from './gemini';
 import { getConfig } from '../shared/storage';
@@ -49,7 +49,13 @@ export function startIncrementalAnalysis(params: {
     const view = await fetchVideoView(params.bvid);
     const videoId = view.bvid;
 
-    const lines = await fetchSubtitleLines(view.aid, view.cid);
+    let lines: Awaited<ReturnType<typeof fetchSubtitleLines>>;
+    try {
+      lines = await fetchSubtitleLines(view.aid, view.cid);
+    } catch (err) {
+      if (err instanceof SubtitleLoginRequiredError) throw err;
+      throw err;
+    }
     const hasCC = lines.length > 0;
     await upsertVideo({
       videoId,
@@ -175,7 +181,8 @@ export function startIncrementalAnalysis(params: {
     params.push({ type: 'ANALYSIS_DONE', videoId });
   })().catch((err: any) => {
     const videoId = params.bvid;
-    params.push({ type: 'ANALYSIS_ERROR', videoId, error: String(err?.message ?? err) });
+    const message = String(err?.message ?? err);
+    params.push({ type: 'ANALYSIS_ERROR', videoId, error: message });
   });
 
   return {
