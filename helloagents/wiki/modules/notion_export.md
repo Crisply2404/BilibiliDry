@@ -7,7 +7,7 @@
 - **职责:**
   - 将 `AnalysisResult`/segments/logicBlocks 渲染为 Markdown
   - 生成可点击的 B站时间戳链接
-- **状态:** 📝规划中
+- **状态:** 🚧开发中
 - **最后更新:** 2026-01-27
 
 ## 规范
@@ -19,4 +19,3 @@
 #### 场景: 复制到 Notion
 前置条件：有 analysisResult
 - 预期结果：Markdown 结构清晰：摘要、要点、时间索引、参考链接
-

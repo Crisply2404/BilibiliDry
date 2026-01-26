@@ -8,7 +8,7 @@
   - content script：识别 B 站播放器 DOM、订阅播放时间、渲染热力图与控制按钮
   - service worker：统一调度（拉字幕、调用 Gemini、写入存储、消息分发）
   - UI：弹窗/侧边栏/页面内浮层（按迭代演进）
-- **状态:** 📝规划中
+- **状态:** 🚧开发中
 - **最后更新:** 2026-01-27
 
 ## 规范
@@ -24,4 +24,3 @@
 ## 依赖
 - agent（生成 segments）
 - memory（读取历史 segments/embedding）
-

@@ -30,11 +30,11 @@
 
 | 模块名称 | 职责 | 状态 | 文档 |
 |---------|------|------|------|
-| extension | MV3 运行时（content script / service worker / UI） | 📝规划中 | `modules/extension.md` |
-| agent | 分段/注水识别/摘要与“边看边出”调度 | 📝规划中 | `modules/agent.md` |
-| memory | 本地语义记忆（索引、embedding、检索） | 📝规划中 | `modules/memory.md` |
-| notion_export | Markdown 导出（复制/下载） | 📝规划中 | `modules/notion_export.md` |
-| ui | 热力图进度条、要点索引、搜索面板 | 📝规划中 | `modules/ui.md` |
+| extension | MV3 运行时（content script / service worker / UI） | 🚧开发中 | `modules/extension.md` |
+| agent | 分段/注水识别/摘要与“边看边出”调度 | 🚧开发中 | `modules/agent.md` |
+| memory | 本地语义记忆（索引、embedding、检索） | 🚧开发中 | `modules/memory.md` |
+| notion_export | Markdown 导出（复制/下载） | 🚧开发中 | `modules/notion_export.md` |
+| ui | 热力图进度条、跳过、搜索面板 | 🚧开发中 | `modules/ui.md` |
 
 ---
 
@@ -45,4 +45,3 @@
 - [数据模型](data.md)
 - [变更历史](../history/index.md)
 - [资源归档](resources/index.md)
-

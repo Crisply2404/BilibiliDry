@@ -61,6 +61,5 @@ sequenceDiagram
 
 | adr_id | title | date | status | affected_modules | details |
 |--------|-------|------|--------|------------------|---------|
-| ADR-001 | 纯扩展本地化 + BYOK，不托管后端 | 2026-01-27 | ✅已采纳 | extension/agent/memory | 方案包 `helloagents/plan/202601270145_chrome_extension_mvp/how.md` |
-| ADR-002 | 本地向量检索 MVP 先线性扫描 | 2026-01-27 | ✅已采纳 | memory | 同上 |
-
+| ADR-001 | 纯扩展本地化 + BYOK，不托管后端 | 2026-01-27 | ✅已采纳 | extension/agent/memory | `helloagents/history/2026-01/202601270145_chrome_extension_mvp/how.md` |
+| ADR-002 | 本地向量检索 MVP 先线性扫描 | 2026-01-27 | ✅已采纳 | memory | `helloagents/history/2026-01/202601270145_chrome_extension_mvp/how.md` |

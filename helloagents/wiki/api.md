@@ -38,7 +38,7 @@
 
 **请求:**
 ```json
-{ "type": "START_INCREMENTAL_ANALYSIS", "videoId": "BVxxxx" }
+{ "type": "START_INCREMENTAL_ANALYSIS", "bvid": "BVxxxx", "currentTimeSec": 123 }
 ```
 
 **响应:**
@@ -89,3 +89,15 @@
 }
 ```
 
+#### `CLEAR_LOCAL_DATA`
+**描述:** 清空本地分析记录与记忆（videos/segments/embeddings）。
+
+**请求:**
+```json
+{ "type": "CLEAR_LOCAL_DATA" }
+```
+
+**响应:**
+```json
+{ "ok": true }
+```

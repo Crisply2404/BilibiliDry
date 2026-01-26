@@ -9,5 +9,8 @@
 ## [0.1.0] - 2026-01-27
 
 ### 新增
-- 初始化 HelloAGENTS 知识库与方案包（Chrome 插件 MVP 规划）。
-
+- Chrome MV3 扩展骨架（Vite + crxjs + Tailwind）。
+- B站 CC 拉取 + 分块增量分析（Gemini BYOK）。
+- 页面注入浮层：热力图、一键跳过、Markdown 导出、跨视频搜索。
+- 本地记忆：IndexedDB（segments/embeddings）+ cosine 语义检索（MVP）。
+- 初始化 HelloAGENTS 知识库与方案包。

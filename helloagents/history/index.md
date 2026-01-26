@@ -8,6 +8,7 @@
 
 | 时间戳 | 功能名称 | 类型 | 状态 | 方案包路径 |
 |--------|----------|------|------|------------|
+| 202601270145 | chrome_extension_mvp | 功能 | ✅已完成 | `helloagents/history/2026-01/202601270145_chrome_extension_mvp/` |
 
 ---
 
@@ -15,5 +16,4 @@
 
 ### 2026-01
 
-- 202601270145_chrome_extension_mvp（计划中） - Chrome 插件 MVP（本地化 Agent：跳过注水/导出/跨视频检索）
-
+- [202601270145_chrome_extension_mvp](2026-01/202601270145_chrome_extension_mvp/) - Chrome 插件 MVP（本地化 Agent：跳过注水/导出/跨视频检索）
