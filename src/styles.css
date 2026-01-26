@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply bg-white text-slate-900;
+  }
+}
+
+@layer utilities {
+  .bdry-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+  .bdry-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .bdry-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.6);
+    border-radius: 999px;
+  }
+  .bdry-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.85);
+  }
+}
+
