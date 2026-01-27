@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         strictPort: false,
         host: 'localhost',
+        cors: true,
         hmr: {
           host: 'localhost'
         }
