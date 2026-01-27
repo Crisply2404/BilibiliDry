@@ -15,10 +15,19 @@ B 站长视频“脱水”与知识挖掘：在播放器上渲染“干货热力
 **Prerequisites:** Node.js
 
 1. 安装依赖：`npm install`
-2. 构建扩展：`npm run build`
-3. Chrome 加载：打开 `chrome://extensions` → 开启开发者模式 → “加载已解压的扩展程序” → 选择 `dist/`
-4. 配置 Key：扩展菜单 → “打开设置” → 填写 Gemini API Key（仅保存在本地 `chrome.storage.local`）
-5. 打开任意 `https://www.bilibili.com/video/*`，右侧会出现 BilibiliDry 浮层
+
+### 开发（热更新）
+1. 启动开发服务器：`npm run dev`
+   - 默认端口 `3000`，若被占用会自动切换到下一个可用端口（看终端输出）
+2. Chrome 加载扩展：打开 `chrome://extensions` → 开启开发者模式 → “加载已解压的扩展程序” → 选择 `dist/`
+3. 配置 Key：扩展菜单 → “打开设置” → 填写 Gemini API Key（仅保存在本地 `chrome.storage.local`）
+4. 打开任意 `https://www.bilibili.com/video/*`，右侧会出现 BilibiliDry 浮层
+
+> 说明：页面 UI（popup/options/content-script）支持 HMR；service worker 变更通常需要在 `chrome://extensions` 手动点击“更新/重新加载扩展”。
+
+### 构建（发布）
+1. 构建扩展：`npm run build`
+2. Chrome 加载：同上，选择 `dist/`
 
 ## 目录结构（关键文件）
 
