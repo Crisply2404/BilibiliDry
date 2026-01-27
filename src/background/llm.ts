@@ -36,9 +36,9 @@ export function getActiveLlm(config: ExtensionConfig): {
     const apiKey = config.openaiApiKey?.trim();
     const model = config.openaiModel?.trim();
     const embeddingModel = config.openaiEmbeddingModel?.trim() || 'text-embedding-3-small';
-    if (!baseUrl) throw new Error('未配置 OpenAI Base URL');
-    if (!apiKey) throw new Error('未配置 OpenAI API Key');
-    if (!model) throw new Error('未配置 OpenAI 模型 ID');
+    if (!baseUrl) throw new Error('未配置 LLM Base URL（请在设置页填写）');
+    if (!apiKey) throw new Error('未配置 API Key（请在设置页填写）');
+    if (!model) throw new Error('未配置模型 ID（请在设置页填写）');
     return {
       source: 'openai',
       embeddingModelTag: `openai:${embeddingModel}`,
@@ -59,7 +59,7 @@ export function getActiveLlm(config: ExtensionConfig): {
   }
 
   const apiKey = config.geminiApiKey?.trim();
-  if (!apiKey) throw new Error('未配置 Gemini API Key（请在设置页填写）');
+  if (!apiKey) throw new Error('未配置 API Key（请在设置页填写）');
   return {
     source: 'gemini',
     embeddingModelTag: 'gemini:text-embedding-004',
@@ -75,4 +75,3 @@ export function getActiveLlm(config: ExtensionConfig): {
     embedText: async (args) => embedTextWithGemini({ apiKey, text: args.text })
   };
 }
-

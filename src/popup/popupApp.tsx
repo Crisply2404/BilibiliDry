@@ -9,22 +9,22 @@ async function getActiveBilibiliTab(): Promise<chrome.tabs.Tab | undefined> {
 }
 
 const PopupApp: React.FC = () => {
-  const [provider, setProvider] = useState<'gemini' | 'openai'>('gemini');
+  const [, setProvider] = useState<'gemini' | 'openai'>('gemini');
   const [hasKey, setHasKey] = useState<boolean>(false);
   const [status, setStatus] = useState<string>('准备就绪');
 
   useEffect(() => {
     getConfig()
       .then((config) => {
-        setProvider(config.llmProvider ?? 'gemini');
-        const ok = config.llmProvider === 'openai' ? Boolean(config.openaiApiKey) : Boolean(config.geminiApiKey);
+        const activeProvider = config.llmProvider ?? 'gemini';
+        setProvider(activeProvider);
+        const ok = activeProvider === 'openai' ? Boolean(config.openaiApiKey) : Boolean(config.geminiApiKey);
         setHasKey(ok);
       })
       .catch(() => setHasKey(false));
   }, []);
 
   const keyHint = useMemo(() => (hasKey ? '已配置' : '未配置'), [hasKey]);
-  const providerLabel = useMemo(() => (provider === 'openai' ? 'OpenAI' : 'Gemini'), [provider]);
 
   const start = useCallback(async () => {
     const tab = await getActiveBilibiliTab();
@@ -50,7 +50,7 @@ const PopupApp: React.FC = () => {
       <div className="flex items-center justify-between">
         <div className="font-bold text-slate-900">BilibiliDry</div>
         <div className="text-xs text-slate-500">
-          {providerLabel} Key: {keyHint}
+          API Key: {keyHint}
         </div>
       </div>
       <div className="text-xs text-slate-600">{status}</div>

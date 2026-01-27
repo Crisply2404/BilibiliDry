@@ -65,7 +65,21 @@ const OptionsApp: React.FC = () => {
     });
     setStatus('已保存');
     setTimeout(() => setStatus(''), 1200);
-  }, [apiKey, chunkSec, autoAnalyzeOnOpen, autoSkip]);
+  }, [
+    llmProvider,
+    geminiApiKey,
+    openaiBaseUrl,
+    openaiApiKey,
+    openaiModel,
+    openaiEmbeddingModel,
+    qiniuAccessKey,
+    qiniuSecretKey,
+    qiniuBucket,
+    qiniuDomain,
+    chunkSec,
+    autoAnalyzeOnOpen,
+    autoSkip
+  ]);
 
   const clearLocalData = useCallback(async () => {
     const ok = confirm('将清空本地分析记录与记忆（segments/embeddings）。确定继续？');
