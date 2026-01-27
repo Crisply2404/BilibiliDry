@@ -7,9 +7,12 @@ export interface CaptionLine {
 }
 
 export interface VideoMeta {
+  videoId?: string;
   bvid: string;
   aid: number;
   cid: number;
+  page?: number;
+  partTitle?: string;
   title: string;
   durationSec: number;
 }
@@ -21,7 +24,7 @@ export type BackgroundRequest =
   | { type: 'CLEAR_LOCAL_DATA' }
   | { type: 'GET_VIDEO_CONTEXT'; bvid: string }
   | { type: 'GET_VIDEO_STATE'; videoId: string }
-  | { type: 'START_INCREMENTAL_ANALYSIS'; bvid: string; currentTimeSec?: number; video?: VideoMeta; captions?: CaptionLine[] }
+  | { type: 'START_INCREMENTAL_ANALYSIS'; videoId: string; bvid: string; currentTimeSec?: number; video?: VideoMeta; captions?: CaptionLine[] }
   | { type: 'CANCEL_ANALYSIS'; videoId: string }
   | { type: 'EXPORT_MARKDOWN'; videoId: string }
   | { type: 'SEARCH_QUERY'; query: string; topK: number };

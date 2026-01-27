@@ -36,7 +36,7 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
         const view = await fetchVideoView(message.bvid);
         const lines = await fetchSubtitleLines(view.aid, view.cid);
         const ctx: VideoContext = {
-          videoId: view.bvid,
+          videoId: `${view.bvid}_${view.cid}`,
           bvid: view.bvid,
           aid: view.aid,
           cid: view.cid,
@@ -88,21 +88,30 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
         return;
       }
       case 'CANCEL_ANALYSIS': {
-        const job = analysisJobs.get(message.videoId);
-        job?.cancel();
+        const entry = analysisJobs.get(message.videoId);
+        entry?.job.cancel();
         analysisJobs.delete(message.videoId);
         respond(sendResponse, { ok: true });
         return;
       }
       case 'START_INCREMENTAL_ANALYSIS': {
         const bvid = message.bvid;
+        const videoId = message.videoId || (message as any).video?.videoId || bvid;
         const tabId = await resolveTargetTabId(sender, bvid);
         if (!tabId) {
           respond(sendResponse, { ok: false, error: '未找到目标 B站视频页 tab' });
           return;
         }
-        analysisJobs.get(bvid)?.cancel();
-        analysisJobs.delete(bvid);
+
+        // One analysis per tab: starting a new one cancels the previous.
+        for (const [key, entry] of analysisJobs.entries()) {
+          if (entry.tabId !== tabId) continue;
+          entry.job.cancel();
+          analysisJobs.delete(key);
+        }
+
+        analysisJobs.get(videoId)?.job.cancel();
+        analysisJobs.delete(videoId);
 
         const push = (msg: any) => {
           chrome.tabs.sendMessage(tabId, msg).catch(() => {});
@@ -110,15 +119,16 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
 
         const job = startIncrementalAnalysis({
           bvid,
+          videoId,
           currentTimeSec: message.currentTimeSec,
           video: (message as any).video,
           captions: (message as any).captions,
           tabId,
           push
         });
-        analysisJobs.set(bvid, job);
+        analysisJobs.set(videoId, { job, tabId });
         job.done.finally(() => {
-          if (analysisJobs.get(bvid) === job) analysisJobs.delete(bvid);
+          if (analysisJobs.get(videoId)?.job === job) analysisJobs.delete(videoId);
         });
 
         respond(sendResponse, { ok: true });
@@ -133,7 +143,7 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
   return true;
 });
 
-const analysisJobs = new Map<string, AnalysisJob>();
+const analysisJobs = new Map<string, { job: AnalysisJob; tabId: number }>();
 
 async function resolveTargetTabId(sender: chrome.runtime.MessageSender, bvid: string): Promise<number | null> {
   if (sender.tab?.id) return sender.tab.id;

@@ -34,6 +34,7 @@ export interface AnalysisJob {
 }
 
 export function startIncrementalAnalysis(params: {
+  videoId: string;
   bvid: string;
   currentTimeSec?: number;
   video?: VideoMeta;
@@ -48,7 +49,8 @@ export function startIncrementalAnalysis(params: {
     const llm = getActiveLlm(config);
 
     const view = params.video ?? (await fetchVideoView(params.bvid));
-    const videoId = view.bvid;
+    const videoId = params.videoId || params.video?.videoId || `${view.bvid}_${view.cid}`;
+    const bvid = view.bvid;
 
     let lines: Awaited<ReturnType<typeof fetchSubtitleLines>>;
     try {
@@ -60,8 +62,11 @@ export function startIncrementalAnalysis(params: {
     const hasCC = lines.length > 0;
     await upsertVideo({
       videoId,
+      bvid,
       aid: view.aid,
       cid: view.cid,
+      page: params.video?.page,
+      partTitle: params.video?.partTitle,
       title: view.title,
       durationSec: view.durationSec,
       hasCC,
@@ -116,7 +121,7 @@ export function startIncrementalAnalysis(params: {
       const transcript = buildTranscript(chunkLines);
 
       const chunkResult = await llm.analyzeChunk({
-        bvid: view.bvid,
+        bvid,
         title: view.title,
         chunkStartSec,
         chunkEndSec,
@@ -181,7 +186,7 @@ export function startIncrementalAnalysis(params: {
     await Promise.allSettled(embeddingTasks);
     params.push({ type: 'ANALYSIS_DONE', videoId });
   })().catch((err: any) => {
-    const videoId = params.bvid;
+    const videoId = params.videoId || params.bvid;
     const message = String(err?.message ?? err);
     params.push({ type: 'ANALYSIS_ERROR', videoId, error: message });
   });

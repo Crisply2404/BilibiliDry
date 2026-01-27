@@ -5,27 +5,56 @@ import { ContentType } from '../../types';
 import type { BackgroundPush } from '../shared/messages';
 import type { CaptionLine, VideoMeta } from '../shared/messages';
 
-type SearchResultItem = { videoId: string; title: string; startTime: number; score: number; snippet: string };
+type SearchResultItem = { videoId: string; bvid: string; page?: number; title: string; startTime: number; score: number; snippet: string };
 
 function getBvidFromUrl(url: string): string | null {
   const match = url.match(/\/video\/(BV[a-zA-Z0-9]+)/);
   return match?.[1] ?? null;
 }
 
+function getPageFromUrl(url: string): number {
+  try {
+    const u = new URL(url);
+    const p = Number(u.searchParams.get('p') ?? '1');
+    if (Number.isFinite(p) && p >= 1) return Math.floor(p);
+  } catch {
+    // ignore
+  }
+  return 1;
+}
+
+function buildVideoId(bvid: string, cid: number): string {
+  return `${bvid}_${cid}`;
+}
+
 function getVideoElement(): HTMLVideoElement | null {
   return document.querySelector('video');
 }
 
-function getVideoMetaFromPage(): VideoMeta | null {
+function getVideoMetaFromInitialState(page: number): VideoMeta | null {
   const state = (window as any).__INITIAL_STATE__;
   const videoData = state?.videoData;
-  const bvid = videoData?.bvid ?? state?.bvid;
-  const aid = videoData?.aid;
-  const cid = videoData?.cid ?? videoData?.pages?.[0]?.cid;
-  const title = videoData?.title ?? document.title;
-  const durationSec = videoData?.duration ?? videoData?.pages?.[0]?.duration;
-  if (!bvid || !aid || !cid || !durationSec) return null;
-  return { bvid: String(bvid), aid: Number(aid), cid: Number(cid), title: String(title), durationSec: Number(durationSec) };
+  const bvid = videoData?.bvid ?? state?.bvid ?? getBvidFromUrl(window.location.href);
+  const aid = videoData?.aid ?? state?.aid;
+  const pages = Array.isArray(videoData?.pages) ? videoData.pages : [];
+  const idx = Math.max(0, Math.min(pages.length - 1, Math.floor((page || 1) - 1)));
+  const chosen = pages[idx] ?? pages[0];
+  const cid = chosen?.cid ?? videoData?.cid;
+  const partTitle = chosen?.part ? String(chosen.part) : undefined;
+  const baseTitle = String(videoData?.title ?? document.title);
+  const title = partTitle && !baseTitle.includes(partTitle) ? `${baseTitle} - ${partTitle}` : baseTitle;
+  const durationSec = Number(chosen?.duration ?? videoData?.duration ?? 0);
+  if (!bvid || !aid || !cid) return null;
+  return {
+    videoId: buildVideoId(String(bvid), Number(cid)),
+    bvid: String(bvid),
+    aid: Number(aid),
+    cid: Number(cid),
+    page,
+    partTitle,
+    title,
+    durationSec
+  };
 }
 
 async function fetchJson(url: string): Promise<any> {
@@ -33,6 +62,30 @@ async function fetchJson(url: string): Promise<any> {
   const text = await res.text();
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
   return JSON.parse(text);
+}
+
+async function fetchVideoMetaFromApi(bvid: string, page: number): Promise<VideoMeta> {
+  const url = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`;
+  const json = await fetchJson(url);
+  if (json?.code !== 0 || !json?.data) throw new Error(`视频信息获取失败: ${json?.message ?? 'unknown'}`);
+  const pages = Array.isArray(json?.data?.pages) ? json.data.pages : [];
+  const idx = Math.max(0, Math.min(pages.length - 1, Math.floor((page || 1) - 1)));
+  const chosen = pages[idx] ?? pages[0];
+  const cid = Number(chosen?.cid ?? json.data.cid);
+  const partTitle = chosen?.part ? String(chosen.part) : undefined;
+  const baseTitle = String(json.data.title ?? document.title);
+  const title = partTitle && !baseTitle.includes(partTitle) ? `${baseTitle} - ${partTitle}` : baseTitle;
+  const durationSec = Number(chosen?.duration ?? json.data.duration ?? 0);
+  return {
+    videoId: buildVideoId(String(json.data.bvid ?? bvid), cid),
+    bvid: String(json.data.bvid ?? bvid),
+    aid: Number(json.data.aid),
+    cid,
+    page,
+    partTitle,
+    title,
+    durationSec
+  };
 }
 
 async function fetchCaptionsFromPage(meta: VideoMeta): Promise<CaptionLine[]> {
@@ -83,7 +136,9 @@ function getNextDryStart(segments: Segment[], currentTime: number): number | nul
 }
 
 const OverlayApp: React.FC = () => {
-  const bvid = useMemo(() => getBvidFromUrl(window.location.href), []);
+  const [bvid, setBvid] = useState<string | null>(() => getBvidFromUrl(window.location.href));
+  const [page, setPage] = useState<number>(() => getPageFromUrl(window.location.href));
+  const [videoId, setVideoId] = useState<string | null>(null);
   const [autoAnalyzeOnOpen, setAutoAnalyzeOnOpen] = useState(false);
   const [autoSkip, setAutoSkip] = useState(false);
   const [videoTitle, setVideoTitle] = useState<string>('');
@@ -97,6 +152,11 @@ const OverlayApp: React.FC = () => {
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [exportStatus, setExportStatus] = useState<string>('');
 
+  const currentVideoKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentVideoKeyRef.current = videoId ?? bvid;
+  }, [bvid, videoId]);
+
   const lastKnownTimeRef = useRef<number>(0);
   useEffect(() => {
     const tick = () => {
@@ -107,21 +167,63 @@ const OverlayApp: React.FC = () => {
     return () => window.clearInterval(id);
   }, []);
 
-  const refreshState = useCallback(async () => {
-    if (!bvid) return;
-    const resp = await chrome.runtime.sendMessage({ type: 'GET_VIDEO_STATE', videoId: bvid });
+  const refreshState = useCallback(async (nextVideoId?: string) => {
+    const id = nextVideoId ?? videoId ?? bvid;
+    if (!id) return;
+    const resp = await chrome.runtime.sendMessage({ type: 'GET_VIDEO_STATE', videoId: id });
     if (resp?.ok && resp.data?.video) {
       setVideoTitle(resp.data.video.title ?? '');
       setDurationSec(resp.data.video.durationSec ?? 0);
+      setVideoId(resp.data.video.videoId ?? id);
     }
     if (resp?.ok && Array.isArray(resp.data?.segments)) {
       setSegments(resp.data.segments);
     }
-  }, [bvid]);
+  }, [bvid, videoId]);
 
   useEffect(() => {
     refreshState().catch(() => {});
   }, [refreshState]);
+
+  // Best-effort: when page/bvid changes (分P/切视频)，尽快从页面状态解析出 videoId（bvid+cid）以便加载正确的本地数据。
+  useEffect(() => {
+    if (!bvid) return;
+    const meta = getVideoMetaFromInitialState(page);
+    if (!meta?.videoId) return;
+    setVideoId(meta.videoId);
+    if (meta.title) setVideoTitle(meta.title);
+    if (meta.durationSec && meta.durationSec > 0) setDurationSec(meta.durationSec);
+    refreshState(meta.videoId).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bvid, page]);
+
+  // B站是 SPA 路由：在同一 tab 切换视频时 URL 会变化但 content script 不会重载
+  useEffect(() => {
+    let lastHref = window.location.href;
+    const timer = window.setInterval(() => {
+      const href = window.location.href;
+      if (href === lastHref) return;
+      lastHref = href;
+      const next = getBvidFromUrl(href);
+      const nextPage = getPageFromUrl(href);
+      if (next !== bvid || nextPage !== page) {
+        currentVideoKeyRef.current = null;
+        setBvid(next);
+        setPage(nextPage);
+        setVideoId(null);
+        setError('');
+        setIsAnalyzing(false);
+        setProgress(0);
+        setResults([]);
+        setQuery('');
+        setExportStatus('');
+        setVideoTitle('');
+        setDurationSec(0);
+        setSegments([]);
+      }
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [bvid, page, refreshState]);
 
   useEffect(() => {
     chrome.runtime
@@ -136,6 +238,9 @@ const OverlayApp: React.FC = () => {
 
   useEffect(() => {
     const handler = (message: BackgroundPush) => {
+      const current = currentVideoKeyRef.current;
+      if (!current) return;
+      if (current && message.videoId !== current) return;
       if (message.type === 'ANALYSIS_ERROR') {
         setIsAnalyzing(false);
         setError(message.error);
@@ -169,15 +274,29 @@ const OverlayApp: React.FC = () => {
     setIsAnalyzing(true);
     setProgress(0);
     try {
-      const meta = getVideoMetaFromPage();
-      if (!meta) throw new Error('未从页面解析到视频信息（可能是 B站页面结构变化）');
-      const captions = await fetchCaptionsFromPage(meta);
+      const currentPage = page || getPageFromUrl(window.location.href);
+      const meta = getVideoMetaFromInitialState(currentPage) ?? (await fetchVideoMetaFromApi(bvid, currentPage));
+      if (!meta?.aid || !meta?.cid) throw new Error('未从页面解析到视频信息（可能是 B站页面结构变化）');
+      const video = getVideoElement();
+      const resolvedDurationSec =
+        meta.durationSec && Number.isFinite(meta.durationSec) && meta.durationSec > 0
+          ? meta.durationSec
+          : video && Number.isFinite(video.duration) && video.duration > 0
+            ? Math.ceil(video.duration)
+            : 0;
+      if (!resolvedDurationSec) throw new Error('未获取到视频时长（请先播放几秒后重试）');
+      const resolvedMeta: VideoMeta = { ...meta, durationSec: resolvedDurationSec, videoId: meta.videoId ?? buildVideoId(meta.bvid, meta.cid) };
+      const resolvedVideoId = resolvedMeta.videoId ?? bvid;
+      setVideoId(resolvedVideoId);
+      currentVideoKeyRef.current = resolvedVideoId;
+      const captions = await fetchCaptionsFromPage(resolvedMeta);
       if (captions.length === 0) throw new Error('字幕列表为空（可能未开启 CC 或接口受限）');
       await chrome.runtime.sendMessage({
         type: 'START_INCREMENTAL_ANALYSIS',
+        videoId: resolvedVideoId,
         bvid,
         currentTimeSec: lastKnownTimeRef.current,
-        video: meta,
+        video: resolvedMeta,
         captions
       });
     } catch (e: any) {
@@ -185,7 +304,7 @@ const OverlayApp: React.FC = () => {
       setProgress(0);
       setError(String(e?.message ?? e));
     }
-  }, [bvid]);
+  }, [bvid, page]);
 
   useEffect(() => {
     if (!autoAnalyzeOnOpen) return;
@@ -231,21 +350,23 @@ const OverlayApp: React.FC = () => {
   }, []);
 
   const cancel = useCallback(async () => {
-    if (!bvid) return;
-    await chrome.runtime.sendMessage({ type: 'CANCEL_ANALYSIS', videoId: bvid });
+    const id = videoId ?? bvid;
+    if (!id) return;
+    await chrome.runtime.sendMessage({ type: 'CANCEL_ANALYSIS', videoId: id });
     setIsAnalyzing(false);
     setProgress(0);
-  }, [bvid]);
+  }, [bvid, videoId]);
 
   const doExport = useCallback(async () => {
-    if (!bvid) return;
-    const resp = await chrome.runtime.sendMessage({ type: 'EXPORT_MARKDOWN', videoId: bvid });
+    const id = videoId ?? bvid;
+    if (!id) return;
+    const resp = await chrome.runtime.sendMessage({ type: 'EXPORT_MARKDOWN', videoId: id });
     if (!resp?.ok) {
       setExportStatus(resp?.error ?? '导出失败');
       return;
     }
     const md = resp.data?.markdown ?? '';
-    const filename = resp.data?.filename ?? `${bvid}.md`;
+    const filename = resp.data?.filename ?? `${id}.md`;
     try {
       await navigator.clipboard.writeText(md);
       setExportStatus('已复制到剪贴板');
@@ -260,7 +381,7 @@ const OverlayApp: React.FC = () => {
     a.click();
     URL.revokeObjectURL(url);
     setTimeout(() => setExportStatus(''), 1500);
-  }, [bvid]);
+  }, [bvid, videoId]);
 
   const doSearch = useCallback(async () => {
     const q = query.trim();
@@ -328,8 +449,9 @@ const OverlayApp: React.FC = () => {
           <button
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
             onClick={() => {
-              if (!bvid) return;
-              const url = chrome.runtime.getURL(`dashboard.html#${bvid}`);
+              const id = videoId ?? bvid;
+              if (!id) return;
+              const url = chrome.runtime.getURL(`dashboard.html#${encodeURIComponent(id)}`);
               window.open(url, '_blank');
             }}
           >
@@ -375,7 +497,12 @@ const OverlayApp: React.FC = () => {
                 <button
                   key={`${r.videoId}:${r.startTime}:${idx}`}
                   className="w-full rounded-md border border-slate-100 bg-slate-50 p-2 text-left hover:bg-slate-100"
-                  onClick={() => window.open(`https://www.bilibili.com/video/${r.videoId}?t=${Math.floor(r.startTime)}`, '_blank')}
+                  onClick={() => {
+                    const t = Math.max(0, Math.floor(r.startTime));
+                    const pageQuery =
+                      typeof r.page === 'number' && Number.isFinite(r.page) && r.page > 1 ? `p=${Math.floor(r.page)}&` : '';
+                    window.open(`https://www.bilibili.com/video/${encodeURIComponent(r.bvid)}?${pageQuery}t=${t}`, '_blank');
+                  }}
                 >
                   <div className="flex justify-between gap-2 text-[11px] text-slate-600">
                     <span className="truncate">{r.title}</span>

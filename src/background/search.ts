@@ -3,6 +3,8 @@ import { listAllEmbeddings, listAllSegments, listVideos, type EmbeddingRecord, t
 
 export interface SearchResultItem {
   videoId: string;
+  bvid: string;
+  page?: number;
   title: string;
   startTime: number;
   score: number;
@@ -28,7 +30,7 @@ function keywordScore(query: string, text: string): number {
 
 export async function searchKeyword(params: { query: string; topK: number }): Promise<SearchResultItem[]> {
   const [segments, videos] = await Promise.all([listAllSegments(), listVideos()]);
-  const titleMap = new Map(videos.map((v) => [v.videoId, v.title] as const));
+  const videoMap = new Map(videos.map((v) => [v.videoId, v] as const));
 
   const scored = segments
     .filter((s) => s.type === ContentType.DRY)
@@ -40,13 +42,18 @@ export async function searchKeyword(params: { query: string; topK: number }): Pr
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, Math.min(50, params.topK)));
 
-  return scored.map(({ seg, score }) => ({
-    videoId: seg.videoId,
-    title: titleMap.get(seg.videoId) ?? seg.videoId,
-    startTime: seg.startTime,
-    score,
-    snippet: seg.summary
-  }));
+  return scored.map(({ seg, score }) => {
+    const video = videoMap.get(seg.videoId);
+    return {
+      videoId: seg.videoId,
+      bvid: video?.bvid ?? seg.videoId,
+      page: video?.page,
+      title: video?.title ?? seg.videoId,
+      startTime: seg.startTime,
+      score,
+      snippet: seg.summary
+    };
+  });
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -76,7 +83,7 @@ export async function searchSemantic(params: {
   const queryVec = await params.embed(params.query);
   const [embeddings, segments, videos] = await Promise.all([listAllEmbeddings(), listAllSegments(), listVideos()]);
   const segMap = new Map<string, SegmentRecord>(segments.map((s) => [s.id, s]));
-  const titleMap = new Map(videos.map((v) => [v.videoId, v.title] as const));
+  const videoMap = new Map(videos.map((v) => [v.videoId, v] as const));
 
   const scored = embeddings
     .map((e: EmbeddingRecord) => {
@@ -90,13 +97,18 @@ export async function searchSemantic(params: {
     .sort((a: any, b: any) => b.score - a.score)
     .slice(0, Math.max(1, Math.min(50, params.topK)));
 
-  return (scored as any[]).map(({ seg, score }) => ({
-    videoId: seg.videoId,
-    title: titleMap.get(seg.videoId) ?? seg.videoId,
-    startTime: seg.startTime,
-    score,
-    snippet: seg.summary
-  }));
+  return (scored as any[]).map(({ seg, score }) => {
+    const video = videoMap.get(seg.videoId);
+    return {
+      videoId: seg.videoId,
+      bvid: video?.bvid ?? seg.videoId,
+      page: video?.page,
+      title: video?.title ?? seg.videoId,
+      startTime: seg.startTime,
+      score,
+      snippet: seg.summary
+    };
+  });
 }
 
 export function getNextDryStart(params: { segments: SegmentRecord[]; currentTime: number }): number | null {

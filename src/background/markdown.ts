@@ -7,9 +7,11 @@ function formatTime(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function timeLink(bvid: string, seconds: number): string {
+function timeLinkForVideo(video: VideoRecord, seconds: number): string {
   const t = Math.max(0, Math.floor(seconds));
-  return `https://www.bilibili.com/video/${encodeURIComponent(bvid)}?t=${t}`;
+  const p = typeof video.page === 'number' && Number.isFinite(video.page) && video.page > 1 ? `p=${Math.floor(video.page)}&` : '';
+  const bvid = video.bvid || video.videoId;
+  return `https://www.bilibili.com/video/${encodeURIComponent(bvid)}?${p}t=${t}`;
 }
 
 export function buildMarkdown(params: { video: VideoRecord; segments: SegmentRecord[] }): string {
@@ -19,18 +21,18 @@ export function buildMarkdown(params: { video: VideoRecord; segments: SegmentRec
 
   const keyPoints = dry
     .slice(0, 12)
-    .map((s) => `- ${formatTime(s.startTime)}-${formatTime(s.endTime)} ${s.summary}（${timeLink(params.video.videoId, s.startTime)}）`)
+    .map((s) => `- ${formatTime(s.startTime)}-${formatTime(s.endTime)} ${s.summary}（${timeLinkForVideo(params.video, s.startTime)}）`)
     .join('\n');
 
   const waterPoints = water
     .slice(0, 12)
-    .map((s) => `- ${formatTime(s.startTime)}-${formatTime(s.endTime)} ${s.summary}（${timeLink(params.video.videoId, s.startTime)}）`)
+    .map((s) => `- ${formatTime(s.startTime)}-${formatTime(s.endTime)} ${s.summary}（${timeLinkForVideo(params.video, s.startTime)}）`)
     .join('\n');
 
   return `# ${params.video.title}
 
-- 视频：${timeLink(params.video.videoId, 0)}
-- BV：${params.video.videoId}
+- 视频：${timeLinkForVideo(params.video, 0)}
+- BV：${params.video.bvid || params.video.videoId}
 - 分析时间：${params.video.lastAnalyzedAt ?? ''}
 
 ## 核心摘要（自动生成）
@@ -46,4 +48,3 @@ ${keyPoints || '- 暂无'}
 ${waterPoints || '- 暂无'}
 `;
 }
-

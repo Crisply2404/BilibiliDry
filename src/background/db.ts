@@ -2,9 +2,12 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { ContentType } from '../../types';
 
 export interface VideoRecord {
-  videoId: string; // bvid
+  videoId: string; // `${bvid}_${cid}` (multi-part safe key)
+  bvid: string;
   aid: number;
   cid: number;
+  page?: number;
+  partTitle?: string;
   title: string;
   durationSec: number;
   hasCC: boolean;

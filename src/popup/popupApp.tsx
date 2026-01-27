@@ -38,7 +38,7 @@ const PopupApp: React.FC = () => {
       return;
     }
     setStatus('已发起分析…');
-    await chrome.runtime.sendMessage({ type: 'START_INCREMENTAL_ANALYSIS', bvid: bvidMatch[1] });
+    await chrome.runtime.sendMessage({ type: 'START_INCREMENTAL_ANALYSIS', videoId: bvidMatch[1], bvid: bvidMatch[1] });
   }, []);
 
   const openOptions = useCallback(async () => {
