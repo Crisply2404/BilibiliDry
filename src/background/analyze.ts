@@ -3,6 +3,7 @@ import { fetchSubtitleLines, fetchVideoView, SubtitleLoginRequiredError } from '
 import { getEmbedding, listSegments, putEmbedding, putSegments, upsertVideo, type SegmentRecord } from './db';
 import { getConfig } from '../shared/storage';
 import { getActiveLlm } from './llm';
+import type { CaptionLine, VideoMeta } from '../shared/messages';
 
 function toId(videoId: string, startTime: number, endTime: number): string {
   const s = startTime.toFixed(3);
@@ -35,6 +36,8 @@ export interface AnalysisJob {
 export function startIncrementalAnalysis(params: {
   bvid: string;
   currentTimeSec?: number;
+  video?: VideoMeta;
+  captions?: CaptionLine[];
   tabId: number;
   push: (msg: any) => void;
 }): AnalysisJob {
@@ -44,12 +47,12 @@ export function startIncrementalAnalysis(params: {
     const config = await getConfig();
     const llm = getActiveLlm(config);
 
-    const view = await fetchVideoView(params.bvid);
+    const view = params.video ?? (await fetchVideoView(params.bvid));
     const videoId = view.bvid;
 
     let lines: Awaited<ReturnType<typeof fetchSubtitleLines>>;
     try {
-      lines = await fetchSubtitleLines(view.aid, view.cid);
+      lines = params.captions ?? (await fetchSubtitleLines(view.aid, view.cid));
     } catch (err) {
       if (err instanceof SubtitleLoginRequiredError) throw err;
       throw err;

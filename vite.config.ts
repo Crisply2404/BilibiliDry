@@ -15,6 +15,15 @@ export default defineConfig(({ mode }) => {
           host: 'localhost'
         }
       },
+      build: {
+        rollupOptions: {
+          input: {
+            popup: path.resolve(__dirname, 'index.html'),
+            options: path.resolve(__dirname, 'options.html'),
+            dashboard: path.resolve(__dirname, 'dashboard.html')
+          }
+        }
+      },
       plugins: [react(), crx({ manifest })],
       resolve: {
         alias: {

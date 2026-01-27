@@ -3,6 +3,7 @@ import HeatmapBar from '../../components/HeatmapBar';
 import type { Segment } from '../../types';
 import { ContentType } from '../../types';
 import type { BackgroundPush } from '../shared/messages';
+import type { CaptionLine, VideoMeta } from '../shared/messages';
 
 type SearchResultItem = { videoId: string; title: string; startTime: number; score: number; snippet: string };
 
@@ -13,6 +14,53 @@ function getBvidFromUrl(url: string): string | null {
 
 function getVideoElement(): HTMLVideoElement | null {
   return document.querySelector('video');
+}
+
+function getVideoMetaFromPage(): VideoMeta | null {
+  const state = (window as any).__INITIAL_STATE__;
+  const videoData = state?.videoData;
+  const bvid = videoData?.bvid ?? state?.bvid;
+  const aid = videoData?.aid;
+  const cid = videoData?.cid ?? videoData?.pages?.[0]?.cid;
+  const title = videoData?.title ?? document.title;
+  const durationSec = videoData?.duration ?? videoData?.pages?.[0]?.duration;
+  if (!bvid || !aid || !cid || !durationSec) return null;
+  return { bvid: String(bvid), aid: Number(aid), cid: Number(cid), title: String(title), durationSec: Number(durationSec) };
+}
+
+async function fetchJson(url: string): Promise<any> {
+  const res = await fetch(url, { credentials: 'include' });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+  return JSON.parse(text);
+}
+
+async function fetchCaptionsFromPage(meta: VideoMeta): Promise<CaptionLine[]> {
+  const url = `https://api.bilibili.com/x/player/wbi/v2?aid=${encodeURIComponent(String(meta.aid))}&cid=${encodeURIComponent(String(meta.cid))}`;
+  const json = await fetchJson(url);
+  if (json?.code !== 0) throw new Error(`字幕接口返回异常: ${json?.message ?? 'unknown'}`);
+  if (json?.data?.need_login_subtitle && Array.isArray(json?.data?.subtitle?.subtitles) && json.data.subtitle.subtitles.length === 0) {
+    throw new Error('该视频字幕需要登录后才能获取（请确认已登录 B站）');
+  }
+  const subtitles = json?.data?.subtitle?.subtitles;
+  if (!Array.isArray(subtitles) || subtitles.length === 0) return [];
+  const chosen =
+    subtitles.find((s: any) => String(s?.lan).startsWith('zh')) ??
+    subtitles.find((s: any) => String(s?.lan_doc).includes('中文')) ??
+    subtitles[0];
+  const subtitleUrl = chosen?.subtitle_url;
+  if (!subtitleUrl) return [];
+  const subJson = await fetchJson(subtitleUrl.startsWith('//') ? `https:${subtitleUrl}` : subtitleUrl);
+  const body = subJson?.body;
+  if (!Array.isArray(body)) return [];
+  return body
+    .map((line: any) => ({
+      from: Number(line?.from ?? 0),
+      to: Number(line?.to ?? 0),
+      content: String(line?.content ?? '').trim()
+    }))
+    .filter((l: CaptionLine) => l.content.length > 0 && Number.isFinite(l.from) && Number.isFinite(l.to))
+    .sort((a, b) => a.from - b.from);
 }
 
 function formatTime(sec: number): string {
@@ -120,11 +168,23 @@ const OverlayApp: React.FC = () => {
     setError('');
     setIsAnalyzing(true);
     setProgress(0);
-    await chrome.runtime.sendMessage({
-      type: 'START_INCREMENTAL_ANALYSIS',
-      bvid,
-      currentTimeSec: lastKnownTimeRef.current
-    });
+    try {
+      const meta = getVideoMetaFromPage();
+      if (!meta) throw new Error('未从页面解析到视频信息（可能是 B站页面结构变化）');
+      const captions = await fetchCaptionsFromPage(meta);
+      if (captions.length === 0) throw new Error('字幕列表为空（可能未开启 CC 或接口受限）');
+      await chrome.runtime.sendMessage({
+        type: 'START_INCREMENTAL_ANALYSIS',
+        bvid,
+        currentTimeSec: lastKnownTimeRef.current,
+        video: meta,
+        captions
+      });
+    } catch (e: any) {
+      setIsAnalyzing(false);
+      setProgress(0);
+      setError(String(e?.message ?? e));
+    }
   }, [bvid]);
 
   useEffect(() => {
@@ -264,6 +324,16 @@ const OverlayApp: React.FC = () => {
             disabled={segments.length === 0}
           >
             一键跳过注水
+          </button>
+          <button
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+            onClick={() => {
+              if (!bvid) return;
+              const url = chrome.runtime.getURL(`dashboard.html#${bvid}`);
+              window.open(url, '_blank');
+            }}
+          >
+            详情
           </button>
           <button
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40"

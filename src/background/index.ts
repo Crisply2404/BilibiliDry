@@ -111,6 +111,8 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
         const job = startIncrementalAnalysis({
           bvid,
           currentTimeSec: message.currentTimeSec,
+          video: (message as any).video,
+          captions: (message as any).captions,
           tabId,
           push
         });
