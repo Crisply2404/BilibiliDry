@@ -1,9 +1,8 @@
 import type { ContentType } from '../../types';
 import { fetchSubtitleLines, fetchVideoView, SubtitleLoginRequiredError } from './bilibili';
 import { getEmbedding, listSegments, putEmbedding, putSegments, upsertVideo, type SegmentRecord } from './db';
-import { analyzeCaptionChunkWithGemini } from './gemini';
 import { getConfig } from '../shared/storage';
-import { embedTextWithGemini } from './gemini';
+import { getActiveLlm } from './llm';
 
 function toId(videoId: string, startTime: number, endTime: number): string {
   const s = startTime.toFixed(3);
@@ -43,8 +42,7 @@ export function startIncrementalAnalysis(params: {
 
   const done = (async () => {
     const config = await getConfig();
-    const apiKey = config.geminiApiKey?.trim();
-    if (!apiKey) throw new Error('未配置 Gemini API Key（请在设置页填写）');
+    const llm = getActiveLlm(config);
 
     const view = await fetchVideoView(params.bvid);
     const videoId = view.bvid;
@@ -76,7 +74,7 @@ export function startIncrementalAnalysis(params: {
     const chunkSec = clamp(Number(config.analysis.chunkSec) || 90, 30, 300);
     const existing = await listSegments(videoId);
     const doneChunkIndexes = new Set<number>(
-      existing.filter((s) => s.source === 'gemini').map((s) => Math.floor(s.startTime / chunkSec))
+      existing.filter((s) => s.source === llm.source).map((s) => Math.floor(s.startTime / chunkSec))
     );
     const chunksMap = new Map<number, typeof lines>();
     for (const line of lines) {
@@ -114,13 +112,13 @@ export function startIncrementalAnalysis(params: {
       const chunkEndSec = Math.min(view.durationSec, (idx + 1) * chunkSec);
       const transcript = buildTranscript(chunkLines);
 
-      const chunkResult = await analyzeCaptionChunkWithGemini({
-        apiKey,
+      const chunkResult = await llm.analyzeChunk({
         bvid: view.bvid,
         title: view.title,
         chunkStartSec,
         chunkEndSec,
-        transcript
+        transcript,
+        signal: controller.signal
       });
 
       const segs: SegmentRecord[] = chunkResult.segments.map((s) => {
@@ -134,7 +132,7 @@ export function startIncrementalAnalysis(params: {
           type: s.type as ContentType,
           confidence: clamp(Number(s.confidence), 0, 1),
           summary: s.summary,
-          source: 'gemini'
+          source: llm.source
         };
       });
 
@@ -163,14 +161,14 @@ export function startIncrementalAnalysis(params: {
           (async () => {
             const existed = await getEmbedding(seg.id);
             if (existed) return;
-            const vector = await embedTextWithGemini({ apiKey, text: seg.summary });
+            const vector = await llm.embedText({ text: seg.summary, signal: controller.signal });
             await putEmbedding({
               id: seg.id,
               videoId,
               startTime: seg.startTime,
               vector,
               text: seg.summary,
-              model: 'text-embedding-004'
+              model: llm.embeddingModelTag
             });
           })().catch(() => {})
         );

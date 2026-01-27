@@ -1,6 +1,5 @@
 import { ContentType } from '../../types';
 import { listAllEmbeddings, listAllSegments, listVideos, type EmbeddingRecord, type SegmentRecord } from './db';
-import { embedTextWithGemini } from './gemini';
 
 export interface SearchResultItem {
   videoId: string;
@@ -68,14 +67,20 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / denom;
 }
 
-export async function searchSemantic(params: { apiKey: string; query: string; topK: number }): Promise<SearchResultItem[]> {
-  const queryVec = await embedTextWithGemini({ apiKey: params.apiKey, text: params.query });
+export async function searchSemantic(params: {
+  embeddingModelTag: string;
+  embed: (text: string) => Promise<number[]>;
+  query: string;
+  topK: number;
+}): Promise<SearchResultItem[]> {
+  const queryVec = await params.embed(params.query);
   const [embeddings, segments, videos] = await Promise.all([listAllEmbeddings(), listAllSegments(), listVideos()]);
   const segMap = new Map<string, SegmentRecord>(segments.map((s) => [s.id, s]));
   const titleMap = new Map(videos.map((v) => [v.videoId, v.title] as const));
 
   const scored = embeddings
     .map((e: EmbeddingRecord) => {
+      if (e.model !== params.embeddingModelTag) return null;
       const seg = segMap.get(e.id);
       if (!seg || seg.type !== ContentType.DRY) return null;
       const score = cosineSimilarity(queryVec, e.vector);

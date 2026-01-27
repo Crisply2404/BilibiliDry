@@ -6,7 +6,8 @@
 ---
 
 ## 认证方式
-- **Gemini Key:** 用户在扩展设置页填写，存放于 `chrome.storage.local`（仅扩展可读写）
+- **BYOK:** 用户在扩展设置页填写，存放于 `chrome.storage.local`（仅扩展可读写）
+- **Provider:** 支持 Gemini / OpenAI-compatible（Base URL + Key + model）
 - **禁止:** Key 通过 DOM 注入到页面环境、写入日志、写入 IndexedDB
 
 ---

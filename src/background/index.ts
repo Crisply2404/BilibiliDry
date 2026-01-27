@@ -5,6 +5,7 @@ import { clearAllData, getVideo, listSegments } from './db';
 import { fetchSubtitleLines, fetchVideoView } from './bilibili';
 import { buildMarkdown } from './markdown';
 import { searchKeyword, searchSemantic } from './search';
+import { getActiveLlm } from './llm';
 
 function respond(sendResponse: (response: BackgroundResponse) => void, response: BackgroundResponse) {
   try {
@@ -70,12 +71,19 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
       }
       case 'SEARCH_QUERY': {
         const config = await getConfig();
-        const apiKey = config.geminiApiKey?.trim();
-        const results = apiKey
-          ? await searchSemantic({ apiKey, query: message.query, topK: message.topK }).catch(() =>
-              searchKeyword({ query: message.query, topK: message.topK })
-            )
-          : await searchKeyword({ query: message.query, topK: message.topK });
+        let results;
+        try {
+          const llm = getActiveLlm(config);
+          results = await searchSemantic({
+            embeddingModelTag: llm.embeddingModelTag,
+            embed: (text) => llm.embedText({ text }),
+            query: message.query,
+            topK: message.topK
+          });
+          if (results.length === 0) results = await searchKeyword({ query: message.query, topK: message.topK });
+        } catch {
+          results = await searchKeyword({ query: message.query, topK: message.topK });
+        }
         respond(sendResponse, { ok: true, data: { results } });
         return;
       }

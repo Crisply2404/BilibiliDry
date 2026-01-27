@@ -21,7 +21,7 @@ export interface SegmentRecord {
   confidence: number;
   summary: string;
   rawText?: string;
-  source: 'gemini' | 'heuristic';
+  source: 'gemini' | 'openai' | 'heuristic';
 }
 
 export interface EmbeddingRecord {

@@ -2,7 +2,20 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { getConfig, setConfig } from '../shared/storage';
 
 const OptionsApp: React.FC = () => {
-  const [apiKey, setApiKey] = useState('');
+  const [llmProvider, setLlmProvider] = useState<'gemini' | 'openai'>('gemini');
+
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState('https://api.qnaigc.com/v1');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [openaiModel, setOpenaiModel] = useState('x-ai/grok-4.1-fast-reasoning');
+  const [openaiEmbeddingModel, setOpenaiEmbeddingModel] = useState('text-embedding-3-small');
+
+  const [qiniuAccessKey, setQiniuAccessKey] = useState('');
+  const [qiniuSecretKey, setQiniuSecretKey] = useState('');
+  const [qiniuBucket, setQiniuBucket] = useState('');
+  const [qiniuDomain, setQiniuDomain] = useState('');
+
   const [chunkSec, setChunkSec] = useState(90);
   const [autoAnalyzeOnOpen, setAutoAnalyzeOnOpen] = useState(false);
   const [autoSkip, setAutoSkip] = useState(false);
@@ -10,7 +23,19 @@ const OptionsApp: React.FC = () => {
 
   useEffect(() => {
     getConfig().then((config) => {
-      setApiKey(config.geminiApiKey ?? '');
+      setLlmProvider(config.llmProvider ?? 'gemini');
+      setGeminiApiKey(config.geminiApiKey ?? '');
+
+      setOpenaiBaseUrl(config.openaiBaseUrl ?? 'https://api.qnaigc.com/v1');
+      setOpenaiApiKey(config.openaiApiKey ?? '');
+      setOpenaiModel(config.openaiModel ?? 'x-ai/grok-4.1-fast-reasoning');
+      setOpenaiEmbeddingModel(config.openaiEmbeddingModel ?? 'text-embedding-3-small');
+
+      setQiniuAccessKey(config.qiniuAccessKey ?? '');
+      setQiniuSecretKey(config.qiniuSecretKey ?? '');
+      setQiniuBucket(config.qiniuBucket ?? '');
+      setQiniuDomain(config.qiniuDomain ?? '');
+
       setChunkSec(config.analysis.chunkSec);
       setAutoAnalyzeOnOpen(config.analysis.autoAnalyzeOnOpen);
       setAutoSkip(config.analysis.autoSkip);
@@ -19,7 +44,19 @@ const OptionsApp: React.FC = () => {
 
   const save = useCallback(async () => {
     await setConfig({
-      geminiApiKey: apiKey.trim() || undefined,
+      llmProvider,
+      geminiApiKey: geminiApiKey.trim() || undefined,
+
+      openaiBaseUrl: openaiBaseUrl.trim() || 'https://api.qnaigc.com/v1',
+      openaiApiKey: openaiApiKey.trim() || undefined,
+      openaiModel: openaiModel.trim() || 'x-ai/grok-4.1-fast-reasoning',
+      openaiEmbeddingModel: openaiEmbeddingModel.trim() || 'text-embedding-3-small',
+
+      qiniuAccessKey: qiniuAccessKey.trim() || undefined,
+      qiniuSecretKey: qiniuSecretKey.trim() || undefined,
+      qiniuBucket: qiniuBucket.trim() || undefined,
+      qiniuDomain: qiniuDomain.trim() || undefined,
+
       analysis: {
         chunkSec,
         autoAnalyzeOnOpen,
@@ -44,19 +81,123 @@ const OptionsApp: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold text-slate-900">BilibiliDry 设置</h1>
           <p className="mt-1 text-sm text-slate-600">
-            BYOK：API Key 仅保存在本地（`chrome.storage.local`），不会上传到任何后端。
+            BYOK：所有 Key 仅保存在本地（`chrome.storage.local`），不会上传到任何后端。
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <div className="text-sm font-semibold text-slate-900">Gemini API Key</div>
-          <input
-            className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
-            placeholder="粘贴你的 Gemini API Key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
-          <div className="mt-2 text-xs text-slate-500">建议创建专用 Key 并开启用量监控。</div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+          <div className="text-sm font-semibold text-slate-900">LLM Provider</div>
+          <div className="flex gap-4 text-sm">
+            <label className="flex items-center gap-2">
+              <input type="radio" checked={llmProvider === 'gemini'} onChange={() => setLlmProvider('gemini')} />
+              <span>Gemini</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" checked={llmProvider === 'openai'} onChange={() => setLlmProvider('openai')} />
+              <span>OpenAI-compatible</span>
+            </label>
+          </div>
+
+          {llmProvider === 'gemini' && (
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Gemini API Key</div>
+              <input
+                className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                placeholder="粘贴你的 Gemini API Key"
+                value={geminiApiKey}
+                onChange={(e) => setGeminiApiKey(e.target.value)}
+              />
+              <div className="mt-2 text-xs text-slate-500">用于字幕分块分析与 embedding（语义检索）。</div>
+            </div>
+          )}
+
+          {llmProvider === 'openai' && (
+            <div className="space-y-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">OpenAI Base URL</div>
+                <input
+                  className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                  placeholder="例如：https://api.qnaigc.com/v1"
+                  value={openaiBaseUrl}
+                  onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+                />
+                <div className="mt-1 text-xs text-slate-500">
+                  需要在 `manifest.config.ts` 的 `host_permissions` 中允许该域名；目前内置允许 `api.qnaigc.com` / `api.openai.com` / `api.x.ai`。
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-slate-900">OpenAI API Key</div>
+                <input
+                  className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                  placeholder="粘贴你的 OpenAI-compatible Key"
+                  value={openaiApiKey}
+                  onChange={(e) => setOpenaiApiKey(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">Model</div>
+                  <input
+                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                    placeholder="x-ai/grok-4.1-fast-reasoning"
+                    value={openaiModel}
+                    onChange={(e) => setOpenaiModel(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">Embedding Model</div>
+                  <input
+                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                    placeholder="text-embedding-3-small"
+                    value={openaiEmbeddingModel}
+                    onChange={(e) => setOpenaiEmbeddingModel(e.target.value)}
+                  />
+                  <div className="mt-1 text-xs text-slate-500">用于跨视频语义检索；若接口不支持会自动回退关键词检索。</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+          <div className="text-sm font-semibold text-slate-900">七牛云（预留）</div>
+          <div className="text-xs text-slate-500">
+            目前版本仅保存配置，不会上传任何内容。若后续接入上传功能，建议使用最小权限与专用 bucket。
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <div className="text-sm font-semibold text-slate-900">AccessKey</div>
+              <input
+                className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                value={qiniuAccessKey}
+                onChange={(e) => setQiniuAccessKey(e.target.value)}
+              />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">SecretKey</div>
+              <input
+                className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                value={qiniuSecretKey}
+                onChange={(e) => setQiniuSecretKey(e.target.value)}
+              />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Bucket</div>
+              <input
+                className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                value={qiniuBucket}
+                onChange={(e) => setQiniuBucket(e.target.value)}
+              />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Domain（可选）</div>
+              <input
+                className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                value={qiniuDomain}
+                onChange={(e) => setQiniuDomain(e.target.value)}
+              />
+            </div>
+          </div>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
@@ -107,4 +248,3 @@ const OptionsApp: React.FC = () => {
 };
 
 export default OptionsApp;
-

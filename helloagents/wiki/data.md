@@ -66,9 +66,14 @@
 
 ## 配置（chrome.storage.local）
 
-- `geminiApiKey`：用户 API Key（仅本地；不得同步/不得日志）
+- `llmProvider`：`gemini` / `openai`
+- `geminiApiKey`：用户 Gemini Key（仅本地；不得同步/不得日志）
+- `openaiBaseUrl`：OpenAI-compatible Base URL（建议包含 `/v1`）
+- `openaiApiKey`：OpenAI-compatible Key（仅本地；不得同步/不得日志）
+- `openaiModel`：默认 `x-ai/grok-4.1-fast-reasoning`
+- `openaiEmbeddingModel`：用于语义检索（失败会回退关键词检索）
+- `qiniuAccessKey` / `qiniuSecretKey` / `qiniuBucket` / `qiniuDomain`：七牛云配置（当前版本仅保存，不上传任何内容）
 - `analysis`：
   - `chunkSec`：分块时长（如 60-120s）
   - `concurrency`：并发数（1-2）
   - `autoSkip`：是否自动跳过注水
-

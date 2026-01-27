@@ -3,7 +3,7 @@ import type { AnalysisResult, Segment } from '../../types';
 export type BackgroundRequest =
   | { type: 'PING' }
   | { type: 'GET_CONFIG' }
-  | { type: 'SET_CONFIG'; config: Partial<{ geminiApiKey: string; analysis: any }> }
+  | { type: 'SET_CONFIG'; config: Record<string, unknown> }
   | { type: 'CLEAR_LOCAL_DATA' }
   | { type: 'GET_VIDEO_CONTEXT'; bvid: string }
   | { type: 'GET_VIDEO_STATE'; videoId: string }

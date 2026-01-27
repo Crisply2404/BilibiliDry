@@ -109,4 +109,3 @@ export async function embedTextWithGemini(params: {
   if (!Array.isArray(embedding)) throw new Error('Embedding 响应格式异常');
   return embedding.map((v: any) => Number(v));
 }
-

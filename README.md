@@ -29,6 +29,13 @@ B 站长视频“脱水”与知识挖掘：在播放器上渲染“干货热力
 1. 构建扩展：`npm run build`
 2. Chrome 加载：同上，选择 `dist/`
 
+## 模型配置
+
+设置页支持两种 Provider：
+- **Gemini**：填 `Gemini API Key`
+- **OpenAI-compatible**：填 `OpenAI Base URL` + `OpenAI API Key`，默认模型 `x-ai/grok-4.1-fast-reasoning`
+
+
 ## 目录结构（关键文件）
 
 - `manifest.config.ts`：MV3 manifest（由 Vite 构建生成 `dist/manifest.json`）

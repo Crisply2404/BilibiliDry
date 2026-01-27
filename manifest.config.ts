@@ -10,7 +10,10 @@ const manifest: ManifestV3Export = {
     'https://www.bilibili.com/*',
     'https://api.bilibili.com/*',
     'https://*.hdslb.com/*',
-    'https://generativelanguage.googleapis.com/*'
+    'https://generativelanguage.googleapis.com/*',
+    'https://api.openai.com/*',
+    'https://api.x.ai/*',
+    'https://api.qnaigc.com/*'
   ],
   action: {
     default_title: 'BilibiliDry',
@@ -31,4 +34,3 @@ const manifest: ManifestV3Export = {
 };
 
 export default manifest;
-
