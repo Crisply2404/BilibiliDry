@@ -57,8 +57,8 @@ function getVideoMetaFromInitialState(page: number): VideoMeta | null {
   };
 }
 
-async function fetchJson(url: string): Promise<any> {
-  const res = await fetch(url, { credentials: 'include' });
+async function fetchJson(url: string, options?: { credentials?: RequestCredentials }): Promise<any> {
+  const res = await fetch(url, { credentials: options?.credentials ?? 'include' });
   const text = await res.text();
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
   return JSON.parse(text);
@@ -90,7 +90,7 @@ async function fetchVideoMetaFromApi(bvid: string, page: number): Promise<VideoM
 
 async function fetchCaptionsFromPage(meta: VideoMeta): Promise<CaptionLine[]> {
   const url = `https://api.bilibili.com/x/player/wbi/v2?aid=${encodeURIComponent(String(meta.aid))}&cid=${encodeURIComponent(String(meta.cid))}`;
-  const json = await fetchJson(url);
+  const json = await fetchJson(url, { credentials: 'include' });
   if (json?.code !== 0) throw new Error(`字幕接口返回异常: ${json?.message ?? 'unknown'}`);
   if (json?.data?.need_login_subtitle && Array.isArray(json?.data?.subtitle?.subtitles) && json.data.subtitle.subtitles.length === 0) {
     throw new Error('该视频字幕需要登录后才能获取（请确认已登录 B站）');
@@ -103,7 +103,9 @@ async function fetchCaptionsFromPage(meta: VideoMeta): Promise<CaptionLine[]> {
     subtitles[0];
   const subtitleUrl = chosen?.subtitle_url;
   if (!subtitleUrl) return [];
-  const subJson = await fetchJson(subtitleUrl.startsWith('//') ? `https:${subtitleUrl}` : subtitleUrl);
+  // Subtitle JSON is usually hosted on `*.hdslb.com` with `Access-Control-Allow-Origin: *` (no credentials).
+  // If we send cookies (`credentials: include`), browsers will block it. So omit credentials here.
+  const subJson = await fetchJson(subtitleUrl.startsWith('//') ? `https:${subtitleUrl}` : subtitleUrl, { credentials: 'omit' });
   const body = subJson?.body;
   if (!Array.isArray(body)) return [];
   return body
@@ -289,15 +291,20 @@ const OverlayApp: React.FC = () => {
       const resolvedVideoId = resolvedMeta.videoId ?? bvid;
       setVideoId(resolvedVideoId);
       currentVideoKeyRef.current = resolvedVideoId;
-      const captions = await fetchCaptionsFromPage(resolvedMeta);
-      if (captions.length === 0) throw new Error('字幕列表为空（可能未开启 CC 或接口受限）');
+      let captions: CaptionLine[] | undefined;
+      try {
+        const lines = await fetchCaptionsFromPage(resolvedMeta);
+        if (lines.length > 0) captions = lines;
+      } catch {
+        // If page-side subtitle fetch fails (often CORS), fall back to background fetching.
+      }
       await chrome.runtime.sendMessage({
         type: 'START_INCREMENTAL_ANALYSIS',
         videoId: resolvedVideoId,
         bvid,
         currentTimeSec: lastKnownTimeRef.current,
         video: resolvedMeta,
-        captions
+        ...(captions ? { captions } : {})
       });
     } catch (e: any) {
       setIsAnalyzing(false);

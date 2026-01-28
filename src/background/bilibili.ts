@@ -64,7 +64,9 @@ export async function fetchSubtitleLines(aid: number, cid: number): Promise<Capt
   const subtitleUrl = chosen?.subtitle_url;
   if (!subtitleUrl) return [];
 
-  const subtitleRes = await fetch(ensureHttps(subtitleUrl), { credentials: 'include' });
+  // Subtitle JSON is typically served with `Access-Control-Allow-Origin: *` and does not require cookies.
+  // Using `omit` avoids any credential-related CORS edge cases.
+  const subtitleRes = await fetch(ensureHttps(subtitleUrl), { credentials: 'omit' });
   if (!subtitleRes.ok) throw new Error(`字幕文件获取失败: ${subtitleRes.status}`);
   const subtitleJson = await subtitleRes.json();
 
