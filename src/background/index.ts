@@ -69,6 +69,12 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
         respond(sendResponse, { ok: true, data: { markdown, filename: `${video.videoId}.md` } });
         return;
       }
+      case 'OPEN_DASHBOARD': {
+        const url = chrome.runtime.getURL(`dashboard.html#${encodeURIComponent(message.videoId)}`);
+        await chrome.tabs.create({ url });
+        respond(sendResponse, { ok: true });
+        return;
+      }
       case 'SEARCH_QUERY': {
         const config = await getConfig();
         let results;

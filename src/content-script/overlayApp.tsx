@@ -439,8 +439,10 @@ const OverlayApp: React.FC = () => {
   const openDashboard = useCallback(() => {
     const id = videoId ?? bvid;
     if (!id) return;
-    const url = chrome.runtime.getURL(`dashboard.html#${encodeURIComponent(id)}`);
-    window.open(url, '_blank');
+    chrome.runtime.sendMessage({ type: 'OPEN_DASHBOARD', videoId: id }).catch(() => {
+      const url = chrome.runtime.getURL(`dashboard.html#${encodeURIComponent(id)}`);
+      window.open(url, '_blank');
+    });
   }, [bvid, videoId]);
 
   const subtitle = useMemo(() => {

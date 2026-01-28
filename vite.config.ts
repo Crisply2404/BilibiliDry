@@ -27,7 +27,8 @@ async function findFreePort(startPort: number, host: string): Promise<number> {
 }
 
 export default defineConfig(async () => {
-  const host = 'localhost';
+  // Use IPv4 loopback to avoid localhost IPv4/IPv6 port-occupation edge cases on Windows.
+  const host = '127.0.0.1';
   const port = await findFreePort(Number(process.env.PORT ?? 3000), host);
 
   return {

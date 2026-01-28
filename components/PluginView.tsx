@@ -40,7 +40,7 @@ const PluginView: React.FC<PluginViewProps> = ({ data, isAnalyzing, onOpenDashbo
       <div className="h-14 bg-bilibili-pink flex items-center justify-between px-4 text-white">
         <div className="flex items-center gap-2">
             <Zap className="fill-current" size={20} />
-            <h1 className="font-bold text-lg">BilibiliDry</h1>
+            <h1 className="font-bold text-lg text-white" style={{ color: '#fff' }}>BilibiliDry</h1>
         </div>
         <button
           onClick={onAnalyze}

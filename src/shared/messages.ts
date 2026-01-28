@@ -27,6 +27,7 @@ export type BackgroundRequest =
   | { type: 'START_INCREMENTAL_ANALYSIS'; videoId: string; bvid: string; currentTimeSec?: number; video?: VideoMeta; captions?: CaptionLine[] }
   | { type: 'CANCEL_ANALYSIS'; videoId: string }
   | { type: 'EXPORT_MARKDOWN'; videoId: string }
+  | { type: 'OPEN_DASHBOARD'; videoId: string }
   | { type: 'SEARCH_QUERY'; query: string; topK: number };
 
 export type BackgroundResponse =
