@@ -23,5 +23,19 @@
   .bdry-scrollbar::-webkit-scrollbar-thumb:hover {
     background: rgba(148, 163, 184, 0.85);
   }
-}
 
+  /* Alias used by prototype UI components */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.6);
+    border-radius: 999px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.85);
+  }
+}
