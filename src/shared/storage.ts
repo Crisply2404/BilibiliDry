@@ -39,10 +39,53 @@ const DEFAULT_CONFIG: ExtensionConfig = {
 
 const STORAGE_KEY = 'config';
 
+function envString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const v = value.trim();
+  return v.length > 0 ? v : undefined;
+}
+
+function getEnvDefaults(): Partial<ExtensionConfig> {
+  // NOTE: Vite only exposes `VITE_*` variables to client bundles.
+  // This is intended for local development / self-built extensions (BYOK).
+  // Do NOT publish builds that contain your private keys.
+  const env: any = (import.meta as any).env ?? {};
+  const llmProvider = envString(env.VITE_LLM_PROVIDER);
+  const geminiApiKey = envString(env.VITE_GEMINI_API_KEY);
+
+  const openaiBaseUrl = envString(env.VITE_OPENAI_BASE_URL);
+  const openaiApiKey = envString(env.VITE_OPENAI_API_KEY);
+  const openaiModel = envString(env.VITE_OPENAI_MODEL);
+  const openaiEmbeddingModel = envString(env.VITE_OPENAI_EMBEDDING_MODEL);
+
+  const qiniuAccessKey = envString(env.VITE_QINIU_ACCESS_KEY);
+  const qiniuSecretKey = envString(env.VITE_QINIU_SECRET_KEY);
+  const qiniuBucket = envString(env.VITE_QINIU_BUCKET);
+  const qiniuDomain = envString(env.VITE_QINIU_DOMAIN);
+
+  const defaults: Partial<ExtensionConfig> = {};
+  if (llmProvider === 'gemini' || llmProvider === 'openai') defaults.llmProvider = llmProvider;
+  if (geminiApiKey) defaults.geminiApiKey = geminiApiKey;
+
+  if (openaiBaseUrl) defaults.openaiBaseUrl = openaiBaseUrl;
+  if (openaiApiKey) defaults.openaiApiKey = openaiApiKey;
+  if (openaiModel) defaults.openaiModel = openaiModel;
+  if (openaiEmbeddingModel) defaults.openaiEmbeddingModel = openaiEmbeddingModel;
+
+  if (qiniuAccessKey) defaults.qiniuAccessKey = qiniuAccessKey;
+  if (qiniuSecretKey) defaults.qiniuSecretKey = qiniuSecretKey;
+  if (qiniuBucket) defaults.qiniuBucket = qiniuBucket;
+  if (qiniuDomain) defaults.qiniuDomain = qiniuDomain;
+
+  return defaults;
+}
+
 export async function getConfig(): Promise<ExtensionConfig> {
   const { [STORAGE_KEY]: config } = await chrome.storage.local.get(STORAGE_KEY);
+  const envDefaults = getEnvDefaults();
   const merged: ExtensionConfig = {
     ...DEFAULT_CONFIG,
+    ...envDefaults,
     ...(config ?? {}),
     analysis: {
       ...DEFAULT_CONFIG.analysis,

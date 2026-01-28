@@ -5,6 +5,10 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 ## [Unreleased]
+### 新增
+- 参考项目拆解报告（`helloagents/wiki/resources/reference-projects/`）。
+- BilibiliDry 对标报告与路线图（`helloagents/wiki/resources/bilibilidry_benchmark.md`）。
+- 对标升级方案包（`helloagents/plan/202601281714_reference_projects_benchmark/`）。
 
 ## [0.1.0] - 2026-01-27
 

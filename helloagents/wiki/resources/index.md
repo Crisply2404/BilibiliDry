@@ -5,4 +5,5 @@
 - `README.md`：原始项目说明（当前为 AI Studio/Vite Demo）
 - `JD.md`：目标岗位 JD（Agent 后端方向）
 - `大模型 Agent 面试复习手册.md`：面试复习笔记
-
+- `reference-projects/index.md`：参考项目拆解与对标（来自 `reference/`，排除 `bilibilidry0`）
+- `bilibilidry_benchmark.md`：BilibiliDry 对标报告与业界水平路线图
