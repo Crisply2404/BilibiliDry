@@ -64,7 +64,14 @@ function getEnvDefaults(): Partial<ExtensionConfig> {
   const qiniuDomain = envString(env.VITE_QINIU_DOMAIN);
 
   const defaults: Partial<ExtensionConfig> = {};
-  if (llmProvider === 'gemini' || llmProvider === 'openai') defaults.llmProvider = llmProvider;
+  if (llmProvider === 'gemini' || llmProvider === 'openai') {
+    defaults.llmProvider = llmProvider;
+  } else {
+    // DX: if user only sets OpenAI env vars, auto switch provider to OpenAI-compatible.
+    // Stored config (settings page) still takes precedence over env defaults.
+    if (openaiApiKey || openaiBaseUrl) defaults.llmProvider = 'openai';
+    else if (geminiApiKey) defaults.llmProvider = 'gemini';
+  }
   if (geminiApiKey) defaults.geminiApiKey = geminiApiKey;
 
   if (openaiBaseUrl) defaults.openaiBaseUrl = openaiBaseUrl;

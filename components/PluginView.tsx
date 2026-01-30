@@ -2,13 +2,16 @@ import React from 'react';
 import { AnalysisResult, ContentType } from '../types';
 import HeatmapBar from './HeatmapBar';
 import HeatmapLegend from './HeatmapLegend';
-import { ExternalLink, Zap, Activity } from 'lucide-react';
+import { ExternalLink, Zap, Activity, Minus, X } from 'lucide-react';
 
 interface PluginViewProps {
   data: AnalysisResult | null;
   isAnalyzing: boolean;
   onOpenDashboard: () => void;
   onAnalyze: () => void;
+  onMinimize?: () => void;
+  onClose?: () => void;
+  onHeaderPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
   subtitle?: string;
   error?: string;
   progress?: number; // 0..1
@@ -20,7 +23,20 @@ interface PluginViewProps {
   extra?: React.ReactNode;
 }
 
-const PluginView: React.FC<PluginViewProps> = ({ data, isAnalyzing, onOpenDashboard, onAnalyze, subtitle, error, progress, heatmap, extra }) => {
+const PluginView: React.FC<PluginViewProps> = ({
+  data,
+  isAnalyzing,
+  onOpenDashboard,
+  onAnalyze,
+  onMinimize,
+  onClose,
+  onHeaderPointerDown,
+  subtitle,
+  error,
+  progress,
+  heatmap,
+  extra
+}) => {
   const dryPercent = data 
     ? Math.round((data.segments.filter(s => s.type === ContentType.DRY).reduce((acc, cur) => acc + (cur.endTime - cur.startTime), 0) / data.totalDuration) * 100)
     : 0;
@@ -37,25 +53,51 @@ const PluginView: React.FC<PluginViewProps> = ({ data, isAnalyzing, onOpenDashbo
   return (
     <div className="w-[380px] h-[560px] rounded-xl overflow-hidden bg-white/95 backdrop-blur border border-gray-200 shadow-2xl flex flex-col font-sans">
       {/* Header */}
-      <div className="h-14 bg-bilibili-pink flex items-center justify-between px-4 text-white">
+      <div
+        className="h-14 bg-bilibili-pink flex items-center justify-between px-4 text-white select-none cursor-move"
+        onPointerDown={onHeaderPointerDown}
+      >
         <div className="flex items-center gap-2">
             <Zap className="fill-current" size={20} />
-            <h1 className="font-bold text-lg text-white" style={{ color: '#fff' }}>BilibiliDry</h1>
+            <h1 className="font-bold text-lg text-white">BilibiliDry</h1>
         </div>
-        <button
-          onClick={onAnalyze}
-          disabled={isAnalyzing}
-          className="rounded-full bg-white/20 px-4 py-1.5 text-sm font-semibold backdrop-blur hover:bg-white/25 disabled:opacity-50"
-        >
-          {isAnalyzing ? '分析中…' : '分析'}
-        </button>
+        <div className="flex items-center gap-2">
+          {onMinimize ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onMinimize();
+              }}
+              className="rounded-md bg-white/15 p-1.5 hover:bg-white/25"
+              aria-label="缩小"
+              title="缩小回悬浮球"
+            >
+              <Minus size={16} />
+            </button>
+          ) : null}
+          {onClose ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="rounded-md bg-white/15 p-1.5 hover:bg-white/25"
+              aria-label="关闭"
+              title="关闭"
+            >
+              <X size={16} />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 p-4 overflow-y-auto custom-scrollbar flex flex-col">
         {subtitle && (
-          <div className="mb-3 text-xs text-gray-500 line-clamp-1">
-            {subtitle}
+          <div className="mb-3">
+            <div className="inline-flex max-w-full items-center rounded-md border border-gray-100 bg-gray-50 px-2 py-1 text-[11px] text-gray-600">
+              <span className="truncate">{subtitle}</span>
+            </div>
           </div>
         )}
 
@@ -101,7 +143,15 @@ const PluginView: React.FC<PluginViewProps> = ({ data, isAnalyzing, onOpenDashbo
             <div className="space-y-6">
                 {/* Stats Card */}
                 <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
-                    <h2 className="text-sm font-bold text-gray-700 mb-2 line-clamp-1">{data.title}</h2>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                        <h2 className="text-sm font-bold text-gray-700 line-clamp-1">{data.title}</h2>
+                        <button
+                            onClick={onAnalyze}
+                            className="shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50"
+                        >
+                            重新分析
+                        </button>
+                    </div>
                     <div className="flex justify-between items-center text-xs text-gray-500 mb-3">
                         <span>干货含量: <span className="text-bilibili-blue font-bold text-lg">{dryPercent}%</span></span>
                         <span>节省时间: <span className="text-green-600 font-bold">~{Math.round((100-dryPercent) * data.totalDuration / 60 / 100)} 分钟</span></span>
