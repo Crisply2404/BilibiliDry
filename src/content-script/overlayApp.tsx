@@ -7,7 +7,7 @@ import type { BackgroundPush } from '../shared/messages';
 import type { CaptionLine, VideoMeta } from '../shared/messages';
 import type { AnalysisResult } from '../../types';
 
-type SearchResultItem = { videoId: string; bvid: string; page?: number; title: string; startTime: number; score: number; snippet: string };
+type SearchResultItem = { startTime: number; endTime: number; score: number; snippet: string; reason?: string };
 
 function getBvidFromUrl(url: string): string | null {
   const match = url.match(/\/video\/(BV[a-zA-Z0-9]+)/);
@@ -154,6 +154,8 @@ const OverlayApp: React.FC = () => {
 
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<SearchResultItem[]>([]);
+  const [searchMode, setSearchMode] = useState<'semantic' | 'keyword' | ''>('');
+  const [searchNote, setSearchNote] = useState<string>('');
   const [exportStatus, setExportStatus] = useState<string>('');
 
   const currentVideoKeyRef = useRef<string | null>(null);
@@ -220,6 +222,8 @@ const OverlayApp: React.FC = () => {
         setProgress(0);
         setResults([]);
         setQuery('');
+        setSearchMode('');
+        setSearchNote('');
         setExportStatus('');
         setVideoTitle('');
         setDurationSec(0);
@@ -395,13 +399,17 @@ const OverlayApp: React.FC = () => {
   const doSearch = useCallback(async () => {
     const q = query.trim();
     if (!q) return;
-    const resp = await chrome.runtime.sendMessage({ type: 'SEARCH_QUERY', query: q, topK: 5 });
+    const id = videoId ?? bvid;
+    if (!id) return;
+    const resp = await chrome.runtime.sendMessage({ type: 'SEARCH_IN_VIDEO', videoId: id, query: q, topK: 5 });
     if (!resp?.ok) {
       setError(resp?.error ?? '搜索失败');
       return;
     }
-    setResults(resp.data?.results ?? []);
-  }, [query]);
+    setResults(resp.data?.items ?? []);
+    setSearchMode(resp.data?.mode ?? '');
+    setSearchNote(resp.data?.note ?? '');
+  }, [bvid, query, videoId]);
 
   const dryPercent = useMemo(() => {
     if (!durationSec || segments.length === 0) return 0;
@@ -501,11 +509,14 @@ const OverlayApp: React.FC = () => {
               {exportStatus && <div className="text-[11px] text-gray-500">{exportStatus}</div>}
 
               <div className="rounded-lg border border-gray-200 bg-white p-2">
-                <div className="text-xs font-semibold text-gray-700">跨视频搜索</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold text-gray-700">本视频搜索</div>
+                  {searchMode && <div className="text-[10px] text-gray-500">{searchMode === 'semantic' ? '语义' : '关键词'}</div>}
+                </div>
                 <div className="mt-2 flex gap-2">
                   <input
                     className="flex-1 rounded-md border border-gray-200 px-2 py-1 text-xs outline-none focus:border-bilibili-blue"
-                    placeholder="例如：RSC 序列化"
+                    placeholder="例如：这节课的结论是什么？"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={(e) => {
@@ -516,21 +527,23 @@ const OverlayApp: React.FC = () => {
                     搜索
                   </button>
                 </div>
+                {searchNote && <div className="mt-1 text-[11px] text-gray-500">{searchNote}</div>}
                 {results.length > 0 && (
                   <div className="mt-2 max-h-40 overflow-auto bdry-scrollbar space-y-2">
                     {results.map((r, idx) => (
                       <button
-                        key={`${r.videoId}:${r.startTime}:${idx}`}
+                        key={`${r.startTime}:${r.endTime}:${idx}`}
                         className="w-full rounded-md border border-gray-100 bg-gray-50 p-2 text-left hover:bg-gray-100"
                         onClick={() => {
                           const t = Math.max(0, Math.floor(r.startTime));
-                          const pageQuery =
-                            typeof r.page === 'number' && Number.isFinite(r.page) && r.page > 1 ? `p=${Math.floor(r.page)}&` : '';
-                          window.open(`https://www.bilibili.com/video/${encodeURIComponent(r.bvid)}?${pageQuery}t=${t}`, '_blank');
+                          const video = getVideoElement();
+                          if (!video) return;
+                          video.currentTime = t;
+                          video.play().catch(() => {});
                         }}
                       >
                         <div className="flex justify-between gap-2 text-[11px] text-gray-600">
-                          <span className="truncate">{r.title}</span>
+                          <span className="truncate">命中片段</span>
                           <span className="shrink-0 font-mono">{formatTime(r.startTime)}</span>
                         </div>
                         <div className="mt-1 text-xs text-gray-800">{r.snippet}</div>

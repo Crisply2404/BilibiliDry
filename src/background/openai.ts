@@ -13,6 +13,14 @@ export interface OpenAIChunkResult {
   segments: OpenAISegment[];
 }
 
+export interface OpenAIRerankItem {
+  startTime: number;
+  endTime: number;
+  score: number;
+  snippet: string;
+  reason?: string;
+}
+
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '');
 }
@@ -165,3 +173,88 @@ export async function embedTextWithOpenAI(params: {
   return embedding.map((v) => Number(v));
 }
 
+export async function rerankCandidatesWithOpenAI(params: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  title: string;
+  query: string;
+  topK: number;
+  candidates: Array<{ startTime: number; endTime: number; summary: string }>;
+  signal?: AbortSignal;
+}): Promise<{ items: OpenAIRerankItem[] }> {
+  const baseUrl = normalizeBaseUrl(params.baseUrl);
+  const url = `${baseUrl}/chat/completions`;
+
+  const system = `
+你是一个“视频内搜索”助手。
+给定用户 query 与若干候选片段（带 startTime/endTime/summary），请选出最相关的 TopK。
+要求：
+1) 输出必须是严格 JSON（不要 Markdown）。
+2) items 按相关度从高到低排序。
+3) score 为 0~1，越大越相关。
+4) snippet 用中文，尽量短（可直接复用 summary 或做轻微改写）。
+`;
+
+  const candidatesText = params.candidates
+    .slice(0, 20)
+    .map((c, i) => `${i + 1}. [${c.startTime}-${c.endTime}] ${String(c.summary ?? '').slice(0, 80)}`)
+    .join('\n');
+
+  const user = `
+视频: ${params.title}
+query: ${params.query}
+topK: ${Math.max(1, Math.min(10, params.topK))}
+
+候选片段:
+${candidatesText}
+
+请输出 JSON：
+{
+  "items": [
+    {"startTime": 0, "endTime": 10, "score": 0.8, "snippet": "…", "reason": "可选"}
+  ]
+}
+`;
+
+  const bodyWithFormat = {
+    model: params.model,
+    temperature: 0.2,
+    messages: [
+      { role: 'system', content: system.trim() },
+      { role: 'user', content: user.trim() }
+    ],
+    response_format: { type: 'json_object' as const }
+  };
+
+  type ChatResp = { choices?: Array<{ message?: { content?: string } }> };
+
+  let resp: ChatResp;
+  try {
+    resp = await postJson<ChatResp>(url, params.apiKey, bodyWithFormat, params.signal);
+  } catch {
+    const bodyNoFormat = { ...bodyWithFormat };
+    delete (bodyNoFormat as any).response_format;
+    resp = await postJson<ChatResp>(url, params.apiKey, bodyNoFormat, params.signal);
+  }
+
+  const content = resp?.choices?.[0]?.message?.content ?? '';
+  const data = tryParseJsonObject(content) ?? {};
+  const items = Array.isArray((data as any).items) ? (data as any).items : [];
+
+  return {
+    items: items
+      .map((x: any) => ({
+        startTime: Number(x.startTime),
+        endTime: Number(x.endTime),
+        score: Math.max(0, Math.min(1, Number(x.score))),
+        snippet: String(x.snippet ?? '').trim(),
+        reason: typeof x.reason === 'string' ? x.reason.trim() : undefined
+      }))
+      .filter(
+        (x: OpenAIRerankItem) =>
+          Number.isFinite(x.startTime) && Number.isFinite(x.endTime) && x.endTime > x.startTime && x.snippet.length > 0
+      )
+      .sort((a: OpenAIRerankItem, b: OpenAIRerankItem) => b.score - a.score)
+  };
+}

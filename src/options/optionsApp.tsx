@@ -9,7 +9,6 @@ const OptionsApp: React.FC = () => {
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState('https://api.qnaigc.com/v1');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [openaiModel, setOpenaiModel] = useState('x-ai/grok-4.1-fast-reasoning');
-  const [openaiEmbeddingModel, setOpenaiEmbeddingModel] = useState('text-embedding-3-small');
 
   const [qiniuAccessKey, setQiniuAccessKey] = useState('');
   const [qiniuSecretKey, setQiniuSecretKey] = useState('');
@@ -29,7 +28,6 @@ const OptionsApp: React.FC = () => {
       setOpenaiBaseUrl(config.openaiBaseUrl ?? 'https://api.qnaigc.com/v1');
       setOpenaiApiKey(config.openaiApiKey ?? '');
       setOpenaiModel(config.openaiModel ?? 'x-ai/grok-4.1-fast-reasoning');
-      setOpenaiEmbeddingModel(config.openaiEmbeddingModel ?? 'text-embedding-3-small');
 
       setQiniuAccessKey(config.qiniuAccessKey ?? '');
       setQiniuSecretKey(config.qiniuSecretKey ?? '');
@@ -50,7 +48,6 @@ const OptionsApp: React.FC = () => {
       openaiBaseUrl: openaiBaseUrl.trim() || 'https://api.qnaigc.com/v1',
       openaiApiKey: openaiApiKey.trim() || undefined,
       openaiModel: openaiModel.trim() || 'x-ai/grok-4.1-fast-reasoning',
-      openaiEmbeddingModel: openaiEmbeddingModel.trim() || 'text-embedding-3-small',
 
       qiniuAccessKey: qiniuAccessKey.trim() || undefined,
       qiniuSecretKey: qiniuSecretKey.trim() || undefined,
@@ -71,7 +68,6 @@ const OptionsApp: React.FC = () => {
     openaiBaseUrl,
     openaiApiKey,
     openaiModel,
-    openaiEmbeddingModel,
     qiniuAccessKey,
     qiniuSecretKey,
     qiniuBucket,
@@ -82,7 +78,7 @@ const OptionsApp: React.FC = () => {
   ]);
 
   const clearLocalData = useCallback(async () => {
-    const ok = confirm('将清空本地分析记录与记忆（segments/embeddings）。确定继续？');
+    const ok = confirm('将清空本地分析记录与记忆（segments 等）。确定继续？');
     if (!ok) return;
     await chrome.runtime.sendMessage({ type: 'CLEAR_LOCAL_DATA' });
     setStatus('已清空');
@@ -121,7 +117,7 @@ const OptionsApp: React.FC = () => {
                 value={geminiApiKey}
                 onChange={(e) => setGeminiApiKey(e.target.value)}
               />
-              <div className="mt-2 text-xs text-slate-500">用于字幕分块分析与 embedding（语义检索）。</div>
+              <div className="mt-2 text-xs text-slate-500">用于字幕分块分析与本视频语义搜索（重排）。</div>
             </div>
           )}
 
@@ -157,16 +153,6 @@ const OptionsApp: React.FC = () => {
                     value={openaiModel}
                     onChange={(e) => setOpenaiModel(e.target.value)}
                   />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">Embedding Model</div>
-                  <input
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
-                    placeholder="text-embedding-3-small"
-                    value={openaiEmbeddingModel}
-                    onChange={(e) => setOpenaiEmbeddingModel(e.target.value)}
-                  />
-                  <div className="mt-1 text-xs text-slate-500">用于跨视频语义检索；若接口不支持会自动回退关键词检索。</div>
                 </div>
               </div>
             </div>

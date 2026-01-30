@@ -1,18 +1,34 @@
 import { ContentType } from '../../types';
-import { listAllEmbeddings, listAllSegments, listVideos, type EmbeddingRecord, type SegmentRecord } from './db';
+import { getVideo, listSegments, type SegmentRecord } from './db';
 
-export interface SearchResultItem {
-  videoId: string;
-  bvid: string;
-  page?: number;
-  title: string;
+export interface InVideoSearchItem {
   startTime: number;
+  endTime: number;
   score: number;
   snippet: string;
+  reason?: string;
 }
 
 function normalize(text: string): string {
   return text.toLowerCase();
+}
+
+function isMostlyCjk(text: string): boolean {
+  const s = text.replace(/\s+/g, '');
+  if (s.length < 2) return false;
+  let cjk = 0;
+  for (const ch of s) {
+    const code = ch.charCodeAt(0);
+    if ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3400 && code <= 0x4dbf)) cjk += 1;
+  }
+  return cjk / s.length >= 0.6;
+}
+
+function cjkBigrams(text: string): string[] {
+  const s = normalize(text).replace(/\s+/g, '');
+  const grams: string[] = [];
+  for (let i = 0; i < s.length - 1; i += 1) grams.push(s.slice(i, i + 2));
+  return grams;
 }
 
 function keywordScore(query: string, text: string): number {
@@ -21,19 +37,40 @@ function keywordScore(query: string, text: string): number {
   const t = normalize(text);
   if (!q) return 0;
   if (t.includes(q)) return 1;
-  // very small fuzzy: count shared tokens
+
+  // Basic token overlap (best for English / spaced queries).
   const tokens = q.split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return 0;
-  const hit = tokens.filter((tok) => t.includes(tok)).length;
-  return hit / tokens.length;
+  if (tokens.length >= 2) {
+    const hit = tokens.filter((tok) => t.includes(tok)).length;
+    return hit / tokens.length;
+  }
+
+  // Chinese/Japanese text often has no spaces; use bigram overlap for a tiny fuzzy score.
+  if (isMostlyCjk(q) && q.length >= 2) {
+    const grams = cjkBigrams(q);
+    if (grams.length === 0) return 0;
+    const hit = grams.filter((g) => t.includes(g)).length;
+    return Math.min(0.99, hit / grams.length);
+  }
+
+  return 0;
 }
 
-export async function searchKeyword(params: { query: string; topK: number }): Promise<SearchResultItem[]> {
-  const [segments, videos] = await Promise.all([listAllSegments(), listVideos()]);
-  const videoMap = new Map(videos.map((v) => [v.videoId, v] as const));
+function pickSearchSegments(segments: SegmentRecord[]): SegmentRecord[] {
+  const dry = segments.filter((s) => s.type === ContentType.DRY);
+  if (dry.length >= 3) return dry;
+  return segments;
+}
 
-  const scored = segments
-    .filter((s) => s.type === ContentType.DRY)
+export async function searchInVideoKeyword(params: {
+  videoId: string;
+  query: string;
+  topK: number;
+}): Promise<InVideoSearchItem[]> {
+  const [video, segments] = await Promise.all([getVideo(params.videoId), listSegments(params.videoId)]);
+  const searchPool = pickSearchSegments(segments);
+
+  const scored = searchPool
     .map((s) => {
       const score = Math.max(keywordScore(params.query, s.summary), keywordScore(params.query, s.rawText ?? ''));
       return { seg: s, score };
@@ -42,87 +79,78 @@ export async function searchKeyword(params: { query: string; topK: number }): Pr
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, Math.min(50, params.topK)));
 
-  return scored.map(({ seg, score }) => {
-    const video = videoMap.get(seg.videoId);
-    return {
-      videoId: seg.videoId,
-      bvid: video?.bvid ?? seg.videoId,
-      page: video?.page,
-      title: video?.title ?? seg.videoId,
-      startTime: seg.startTime,
-      score,
-      snippet: seg.summary
-    };
-  });
+  // Note: video is currently unused, but kept for future (e.g. show title) and to validate video existence.
+  void video;
+
+  return scored.map(({ seg, score }) => ({
+    startTime: seg.startTime,
+    endTime: seg.endTime,
+    score,
+    snippet: seg.summary
+  }));
 }
 
-function cosineSimilarity(a: number[], b: number[]): number {
-  const len = Math.min(a.length, b.length);
-  if (len === 0) return 0;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < len; i += 1) {
-    const va = a[i];
-    const vb = b[i];
-    dot += va * vb;
-    na += va * va;
-    nb += vb * vb;
-  }
-  const denom = Math.sqrt(na) * Math.sqrt(nb);
-  if (!denom) return 0;
-  return dot / denom;
-}
-
-export async function searchSemantic(params: {
-  embeddingModelTag: string;
-  embed: (text: string) => Promise<number[]>;
+export async function searchInVideoSemantic(params: {
+  videoId: string;
   query: string;
   topK: number;
-}): Promise<SearchResultItem[]> {
-  const queryVec = await params.embed(params.query);
-  const [embeddings, segments, videos] = await Promise.all([listAllEmbeddings(), listAllSegments(), listVideos()]);
-  const segMap = new Map<string, SegmentRecord>(segments.map((s) => [s.id, s]));
-  const videoMap = new Map(videos.map((v) => [v.videoId, v] as const));
+  rerank: (args: {
+    videoId: string;
+    title: string;
+    query: string;
+    topK: number;
+    candidates: Array<{ startTime: number; endTime: number; summary: string; rawText?: string }>;
+  }) => Promise<{ items: InVideoSearchItem[] }>;
+}): Promise<{ items: InVideoSearchItem[]; mode: 'semantic' | 'keyword'; note?: string }> {
+  const [video, segments] = await Promise.all([getVideo(params.videoId), listSegments(params.videoId)]);
+  const title = video?.title ?? params.videoId;
+  const searchPool = pickSearchSegments(segments);
 
-  const scored = embeddings
-    .map((e: EmbeddingRecord) => {
-      if (e.model !== params.embeddingModelTag) return null;
-      const seg = segMap.get(e.id);
-      if (!seg || seg.type !== ContentType.DRY) return null;
-      const score = cosineSimilarity(queryVec, e.vector);
-      return { seg, score };
+  // Candidate recall: small topN based on keyword overlap, then let LLM rerank semantically.
+  const recallTopN = 12;
+  const recall = searchPool
+    .map((s) => {
+      const score = Math.max(keywordScore(params.query, s.summary), keywordScore(params.query, s.rawText ?? ''));
+      return { seg: s, score };
     })
-    .filter(Boolean)
-    .sort((a: any, b: any) => b.score - a.score)
-    .slice(0, Math.max(1, Math.min(50, params.topK)));
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(recallTopN, params.topK));
 
-  return (scored as any[]).map(({ seg, score }) => {
-    const video = videoMap.get(seg.videoId);
-    return {
-      videoId: seg.videoId,
-      bvid: video?.bvid ?? seg.videoId,
-      page: video?.page,
-      title: video?.title ?? seg.videoId,
+  const candidates = recall
+    .filter((x) => x.seg.summary.trim().length > 0)
+    .slice(0, recallTopN)
+    .map(({ seg }) => ({
       startTime: seg.startTime,
-      score,
-      snippet: seg.summary
-    };
-  });
+      endTime: seg.endTime,
+      summary: seg.summary,
+      rawText: seg.rawText
+    }));
+
+  if (candidates.length === 0) {
+    return { items: [], mode: 'keyword', note: '本视频暂无可搜索片段（请先分析生成段落）' };
+  }
+
+  try {
+    const reranked = await params.rerank({
+      videoId: params.videoId,
+      title,
+      query: params.query,
+      topK: params.topK,
+      candidates
+    });
+    const items = Array.isArray(reranked?.items) ? reranked.items : [];
+    const normalized = items
+      .filter((i) => Number.isFinite(i.startTime) && Number.isFinite(i.endTime) && i.endTime > i.startTime && i.snippet?.trim?.())
+      .slice(0, Math.max(1, Math.min(50, params.topK)));
+    if (normalized.length > 0) return { items: normalized, mode: 'semantic' };
+  } catch (err: any) {
+    // fall through to keyword
+    const msg = String(err?.message ?? err);
+    const keyword = await searchInVideoKeyword({ videoId: params.videoId, query: params.query, topK: params.topK });
+    return { items: keyword, mode: 'keyword', note: msg || '语义搜索失败，已回退关键词搜索' };
+  }
+
+  const keyword = await searchInVideoKeyword({ videoId: params.videoId, query: params.query, topK: params.topK });
+  return { items: keyword, mode: 'keyword', note: '语义搜索未命中，已回退关键词搜索' };
 }
 
-export function getNextDryStart(params: { segments: SegmentRecord[]; currentTime: number }): number | null {
-  const sorted = [...params.segments].sort((a, b) => a.startTime - b.startTime);
-  const idx = sorted.findIndex((s) => params.currentTime >= s.startTime && params.currentTime < s.endTime);
-  if (idx === -1) {
-    const next = sorted.find((s) => s.type === ContentType.DRY && s.startTime > params.currentTime);
-    return next ? next.startTime : null;
-  }
-  const current = sorted[idx];
-  if (current.type === ContentType.DRY) {
-    const next = sorted.slice(idx + 1).find((s) => s.type === ContentType.DRY);
-    return next ? next.startTime : null;
-  }
-  const next = sorted.slice(idx + 1).find((s) => s.type === ContentType.DRY);
-  return next ? next.startTime : null;
-}

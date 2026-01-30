@@ -28,7 +28,7 @@ export type BackgroundRequest =
   | { type: 'CANCEL_ANALYSIS'; videoId: string }
   | { type: 'EXPORT_MARKDOWN'; videoId: string }
   | { type: 'OPEN_DASHBOARD'; videoId: string }
-  | { type: 'SEARCH_QUERY'; query: string; topK: number };
+  | { type: 'SEARCH_IN_VIDEO'; videoId: string; query: string; topK: number };
 
 export type BackgroundResponse =
   | { ok: true; data?: any }

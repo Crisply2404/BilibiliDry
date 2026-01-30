@@ -1,6 +1,6 @@
 import type { ContentType } from '../../types';
 import { fetchSubtitleLines, fetchVideoView, SubtitleLoginRequiredError } from './bilibili';
-import { getEmbedding, listSegments, putEmbedding, putSegments, upsertVideo, type SegmentRecord } from './db';
+import { listSegments, putSegments, upsertVideo, type SegmentRecord } from './db';
 import { getConfig } from '../shared/storage';
 import { getActiveLlm } from './llm';
 import type { CaptionLine, VideoMeta } from '../shared/messages';
@@ -13,6 +13,15 @@ function toId(videoId: string, startTime: number, endTime: number): string {
 
 function clamp(num: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, num));
+}
+
+function redactSecrets(text: string): string {
+  return (
+    text
+      .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***REDACTED***')
+      .replace(/sk-\.\.\.[A-Za-z0-9_-]{2,}/g, 'sk-***REDACTED***')
+      .replace(/Bearer\s+[A-Za-z0-9._~-]{8,}/gi, 'Bearer ***REDACTED***')
+  );
 }
 
 function formatTime(sec: number): string {
@@ -105,7 +114,6 @@ export function startIncrementalAnalysis(params: {
 
     const total = ordered.length;
     let completed = 0;
-    const embeddingTasks: Promise<void>[] = [];
 
     for (const idx of ordered) {
       if (controller.signal.aborted) return;
@@ -160,34 +168,12 @@ export function startIncrementalAnalysis(params: {
           summary: s.summary
         }))
       });
-
-      // Fire-and-forget embedding generation for DRY segments (used by cross-video semantic search).
-      for (const seg of segs) {
-        if (seg.type !== 'DRY') continue;
-        if (seg.summary.trim().length === 0) continue;
-        embeddingTasks.push(
-          (async () => {
-            const existed = await getEmbedding(seg.id);
-            if (existed) return;
-            const vector = await llm.embedText({ text: seg.summary, signal: controller.signal });
-            await putEmbedding({
-              id: seg.id,
-              videoId,
-              startTime: seg.startTime,
-              vector,
-              text: seg.summary,
-              model: llm.embeddingModelTag
-            });
-          })().catch(() => {})
-        );
-      }
     }
 
-    await Promise.allSettled(embeddingTasks);
     params.push({ type: 'ANALYSIS_DONE', videoId });
   })().catch((err: any) => {
     const videoId = params.videoId || params.bvid;
-    const message = String(err?.message ?? err);
+    const message = redactSecrets(String(err?.message ?? err));
     params.push({ type: 'ANALYSIS_ERROR', videoId, error: message });
   });
 

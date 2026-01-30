@@ -19,6 +19,7 @@ B 站长视频“脱水”与知识挖掘：在播放器上渲染“干货热力
 ### 开发（热更新）
 1. 启动开发服务器：`npm run dev`
    - 默认端口 `3000`，若被占用会自动切换到下一个可用端口（看终端输出）
+   - 可在 `.env.local` 里设置 `PORT_OFFSET`（例如 `PORT_OFFSET=1` 则从 `3001` 开始找可用端口；前端 dev server + 扩展 dev loader 会保持一致）
 2. Chrome 加载扩展：打开 `chrome://extensions` → 开启开发者模式 → “加载已解压的扩展程序” → 选择 `dist/`
 3. 配置 Key：扩展菜单 → “打开设置” → 填写 Gemini API Key（仅保存在本地 `chrome.storage.local`）
 4. 打开任意 `https://www.bilibili.com/video/*`，右侧会出现 BilibiliDry 浮层

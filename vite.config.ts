@@ -1,11 +1,31 @@
 import path from 'path';
 import net from 'node:net';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { crx } from '@crxjs/vite-plugin';
 import manifest from './manifest.config';
 
 type ListenResult = 'free' | 'in-use' | 'no-address';
+
+function parsePort(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  if (!v) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  const i = Math.floor(n);
+  if (i <= 0 || i > 65535) return null;
+  return i;
+}
+
+function parseOffset(value: unknown): number {
+  if (typeof value !== 'string') return 0;
+  const v = value.trim();
+  if (!v) return 0;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.trunc(n);
+}
 
 function canListen(port: number, host: string): Promise<ListenResult> {
   return new Promise((resolve) => {
@@ -42,8 +62,13 @@ async function findFreePort(startPort: number): Promise<number> {
 }
 
 export default defineConfig(async () => {
+  const env = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), '');
+
   const host = 'localhost';
-  const port = await findFreePort(Number(process.env.PORT ?? 3000));
+  const basePort = parsePort(env.PORT) ?? parsePort(process.env.PORT) ?? 3000;
+  const offset = parseOffset(env.PORT_OFFSET ?? env.VITE_PORT_OFFSET) || parseOffset(process.env.PORT_OFFSET ?? process.env.VITE_PORT_OFFSET);
+  const startPort = basePort + offset;
+  const port = await findFreePort(startPort);
 
   return {
     server: {

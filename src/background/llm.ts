@@ -1,7 +1,7 @@
 import type { ContentType } from '../../types';
 import type { ExtensionConfig } from '../shared/storage';
-import { analyzeCaptionChunkWithGemini, embedTextWithGemini } from './gemini';
-import { analyzeCaptionChunkWithOpenAI, embedTextWithOpenAI } from './openai';
+import { analyzeCaptionChunkWithGemini, embedTextWithGemini, rerankCandidatesWithGemini } from './gemini';
+import { analyzeCaptionChunkWithOpenAI, embedTextWithOpenAI, rerankCandidatesWithOpenAI } from './openai';
 
 export type LlmSource = 'gemini' | 'openai';
 
@@ -18,6 +18,14 @@ export interface LlmChunkResult {
   segments: LlmSegment[];
 }
 
+export interface LlmRerankItem {
+  startTime: number;
+  endTime: number;
+  score: number;
+  snippet: string;
+  reason?: string;
+}
+
 export function getActiveLlm(config: ExtensionConfig): {
   source: LlmSource;
   embeddingModelTag: string;
@@ -30,6 +38,14 @@ export function getActiveLlm(config: ExtensionConfig): {
     signal?: AbortSignal;
   }) => Promise<LlmChunkResult>;
   embedText: (args: { text: string; signal?: AbortSignal }) => Promise<number[]>;
+  rerankCandidates: (args: {
+    videoId: string;
+    title: string;
+    query: string;
+    topK: number;
+    candidates: Array<{ startTime: number; endTime: number; summary: string; rawText?: string }>;
+    signal?: AbortSignal;
+  }) => Promise<{ items: LlmRerankItem[] }>;
 } {
   if (config.llmProvider === 'openai') {
     const baseUrl = config.openaiBaseUrl?.trim();
@@ -55,6 +71,18 @@ export function getActiveLlm(config: ExtensionConfig): {
           signal: args.signal
         }),
       embedText: async (args) => embedTextWithOpenAI({ baseUrl, apiKey, model: embeddingModel, text: args.text, signal: args.signal })
+      ,
+      rerankCandidates: async (args) =>
+        rerankCandidatesWithOpenAI({
+          baseUrl,
+          apiKey,
+          model,
+          title: args.title,
+          query: args.query,
+          topK: args.topK,
+          candidates: args.candidates.map((c) => ({ startTime: c.startTime, endTime: c.endTime, summary: c.summary })),
+          signal: args.signal
+        })
     };
   }
 
@@ -73,5 +101,14 @@ export function getActiveLlm(config: ExtensionConfig): {
         transcript: args.transcript
       }),
     embedText: async (args) => embedTextWithGemini({ apiKey, text: args.text })
+    ,
+    rerankCandidates: async (args) =>
+      rerankCandidatesWithGemini({
+        apiKey,
+        title: args.title,
+        query: args.query,
+        topK: args.topK,
+        candidates: args.candidates.map((c) => ({ startTime: c.startTime, endTime: c.endTime, summary: c.summary }))
+      })
   };
 }

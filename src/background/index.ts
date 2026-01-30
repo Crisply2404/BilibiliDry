@@ -4,8 +4,20 @@ import { startIncrementalAnalysis, type AnalysisJob } from './analyze';
 import { clearAllData, getVideo, listSegments } from './db';
 import { fetchSubtitleLines, fetchVideoView } from './bilibili';
 import { buildMarkdown } from './markdown';
-import { searchKeyword, searchSemantic } from './search';
+import { searchInVideoKeyword, searchInVideoSemantic } from './search';
 import { getActiveLlm } from './llm';
+
+function redactSecrets(text: string): string {
+  return (
+    text
+      // OpenAI-style keys
+      .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***REDACTED***')
+      // Providers sometimes echo partial keys like `sk-...abcd`
+      .replace(/sk-\.\.\.[A-Za-z0-9_-]{2,}/g, 'sk-***REDACTED***')
+      // Bearer tokens
+      .replace(/Bearer\s+[A-Za-z0-9._~-]{8,}/gi, 'Bearer ***REDACTED***')
+  );
+}
 
 function respond(sendResponse: (response: BackgroundResponse) => void, response: BackgroundResponse) {
   try {
@@ -75,23 +87,32 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
         respond(sendResponse, { ok: true });
         return;
       }
-      case 'SEARCH_QUERY': {
+      case 'SEARCH_IN_VIDEO': {
+        const videoId = message.videoId;
+        if (!videoId) {
+          respond(sendResponse, { ok: false, error: '缺少 videoId' });
+          return;
+        }
+
         const config = await getConfig();
-        let results;
         try {
           const llm = getActiveLlm(config);
-          results = await searchSemantic({
-            embeddingModelTag: llm.embeddingModelTag,
-            embed: (text) => llm.embedText({ text }),
+          const semantic = await searchInVideoSemantic({
+            videoId,
             query: message.query,
-            topK: message.topK
+            topK: message.topK,
+            rerank: (args) => llm.rerankCandidates(args)
           });
-          if (results.length === 0) results = await searchKeyword({ query: message.query, topK: message.topK });
-        } catch {
-          results = await searchKeyword({ query: message.query, topK: message.topK });
+          respond(sendResponse, { ok: true, data: semantic });
+          return;
+        } catch (err: any) {
+          const keyword = await searchInVideoKeyword({ videoId, query: message.query, topK: message.topK });
+          respond(sendResponse, {
+            ok: true,
+            data: { items: keyword, mode: 'keyword', note: redactSecrets(String(err?.message ?? '已回退关键词搜索')) }
+          });
+          return;
         }
-        respond(sendResponse, { ok: true, data: { results } });
-        return;
       }
       case 'CANCEL_ANALYSIS': {
         const entry = analysisJobs.get(message.videoId);
