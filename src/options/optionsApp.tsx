@@ -6,9 +6,10 @@ const OptionsApp: React.FC = () => {
 
   const [geminiApiKey, setGeminiApiKey] = useState('');
 
-  const [openaiBaseUrl, setOpenaiBaseUrl] = useState('https://api.qnaigc.com/v1');
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
-  const [openaiModel, setOpenaiModel] = useState('x-ai/grok-4.1-fast-reasoning');
+  const [openaiModel, setOpenaiModel] = useState('');
+  const [verifyStatus, setVerifyStatus] = useState<string>('');
 
   const [qiniuAccessKey, setQiniuAccessKey] = useState('');
   const [qiniuSecretKey, setQiniuSecretKey] = useState('');
@@ -25,9 +26,9 @@ const OptionsApp: React.FC = () => {
       setLlmProvider(config.llmProvider ?? 'gemini');
       setGeminiApiKey(config.geminiApiKey ?? '');
 
-      setOpenaiBaseUrl(config.openaiBaseUrl ?? 'https://api.qnaigc.com/v1');
+      setOpenaiBaseUrl(config.openaiBaseUrl ?? '');
       setOpenaiApiKey(config.openaiApiKey ?? '');
-      setOpenaiModel(config.openaiModel ?? 'x-ai/grok-4.1-fast-reasoning');
+      setOpenaiModel(config.openaiModel ?? '');
 
       setQiniuAccessKey(config.qiniuAccessKey ?? '');
       setQiniuSecretKey(config.qiniuSecretKey ?? '');
@@ -45,9 +46,9 @@ const OptionsApp: React.FC = () => {
       llmProvider,
       geminiApiKey: geminiApiKey.trim() || undefined,
 
-      openaiBaseUrl: openaiBaseUrl.trim() || 'https://api.qnaigc.com/v1',
+      openaiBaseUrl: openaiBaseUrl.trim() || '',
       openaiApiKey: openaiApiKey.trim() || undefined,
-      openaiModel: openaiModel.trim() || 'x-ai/grok-4.1-fast-reasoning',
+      openaiModel: openaiModel.trim() || '',
 
       qiniuAccessKey: qiniuAccessKey.trim() || undefined,
       qiniuSecretKey: qiniuSecretKey.trim() || undefined,
@@ -76,6 +77,19 @@ const OptionsApp: React.FC = () => {
     autoAnalyzeOnOpen,
     autoSkip
   ]);
+
+  const verifyConnection = useCallback(async () => {
+    setVerifyStatus('验证中…');
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'TEST_LLM_CONNECTION' });
+      if (resp?.ok) setVerifyStatus(`可用（${String(resp.data?.modelTag ?? resp.data?.source ?? '').trim() || 'ok'}）`);
+      else setVerifyStatus(resp?.error ?? '验证失败');
+    } catch (e: any) {
+      setVerifyStatus(String(e?.message ?? e));
+    } finally {
+      setTimeout(() => setVerifyStatus(''), 2500);
+    }
+  }, []);
 
   const clearLocalData = useCallback(async () => {
     const ok = confirm('将清空本地分析记录与记忆（segments 等）。确定继续？');
@@ -132,7 +146,7 @@ const OptionsApp: React.FC = () => {
                   onChange={(e) => setOpenaiBaseUrl(e.target.value)}
                 />
                 <div className="mt-1 text-xs text-slate-500">
-                  需要在 `manifest.config.ts` 的 `host_permissions` 中允许该域名；目前内置允许 `api.qnaigc.com` / `api.openai.com` / `api.x.ai`。
+                  需要在 `manifest.config.ts` 的 `host_permissions` 中允许该域名；目前内置允许 `api.qnaigc.com` / `api.openai.com` / `api.x.ai` / `right.codes`。
                 </div>
               </div>
               <div>
@@ -149,11 +163,21 @@ const OptionsApp: React.FC = () => {
                   <div className="text-sm font-semibold text-slate-900">Model</div>
                   <input
                     className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
-                    placeholder="x-ai/grok-4.1-fast-reasoning"
+                    placeholder="例如：gpt-5.2"
                     value={openaiModel}
                     onChange={(e) => setOpenaiModel(e.target.value)}
                   />
                 </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                  onClick={verifyConnection}
+                >
+                  验证连接
+                </button>
+                <div className="text-sm text-slate-500">{verifyStatus}</div>
               </div>
             </div>
           )}

@@ -17,6 +17,14 @@ export interface Segment {
   type: ContentType;
   confidence: number; // 0 to 1
   summary: string;
+  verification?: {
+    verdict: 'pass' | 'weak' | 'fail';
+    alignmentScore: number; // 0..1
+    reason: string;
+    evidence: string[];
+    checkedAt: string; // ISO
+    modelTag: string;
+  };
 }
 
 export interface LogicBlock {

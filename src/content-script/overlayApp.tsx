@@ -189,6 +189,7 @@ const OverlayApp: React.FC = () => {
   const [progress, setProgress] = useState<number>(0);
   const [error, setError] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [reflection, setReflection] = useState<{ progress: number; completed: number; total: number } | null>(null);
 
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<SearchResultItem[]>([]);
@@ -397,6 +398,7 @@ const OverlayApp: React.FC = () => {
         if (uiModeRef.current === 'closed') setUiMode('open');
         setIsAnalyzing(false);
         setError(message.error);
+        setReflection(null);
         return;
       }
       if (message.type === 'ANALYSIS_UPDATE') {
@@ -418,6 +420,22 @@ const OverlayApp: React.FC = () => {
         setIsAnalyzing(false);
         setProgress(1);
         refreshState(message.videoId).catch(() => {});
+        return;
+      }
+      if (message.type === 'REFLECTION_UPDATE') {
+        if (uiModeRef.current === 'closed') setUiMode('open');
+        setReflection({ progress: message.progress, completed: message.completed, total: message.total });
+        if (Array.isArray(message.segments) && message.segments.length > 0) {
+          setSegments((prev) => {
+            const next = new Map(prev.map((s) => [s.id, s] as const));
+            for (const s of message.segments!) {
+              const old = next.get(s.id);
+              next.set(s.id, old ? { ...old, ...s } : s);
+            }
+            return Array.from(next.values());
+          });
+        }
+        return;
       }
     };
     chrome.runtime.onMessage.addListener(handler as any);
@@ -429,6 +447,7 @@ const OverlayApp: React.FC = () => {
     setError('');
     setIsAnalyzing(true);
     setProgress(0);
+    setReflection(null);
     try {
       const currentPage = page || getPageFromUrl(window.location.href);
       const meta = getVideoMetaFromInitialState(currentPage) ?? (await fetchVideoMetaFromApi(bvid, currentPage));
@@ -649,6 +668,7 @@ const OverlayApp: React.FC = () => {
             onOpenDashboard={openDashboard}
             onMinimize={minimizeToBall}
             onClose={closeOverlay}
+            verificationStatus={reflection ?? undefined}
             onHeaderPointerDown={(e) => {
               const el = e.target as HTMLElement | null;
               if (el && el.closest('button')) return;

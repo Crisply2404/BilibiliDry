@@ -6,6 +6,7 @@ import { fetchSubtitleLines, fetchVideoView } from './bilibili';
 import { buildMarkdown } from './markdown';
 import { searchInVideoKeyword, searchInVideoSemantic } from './search';
 import { getActiveLlm } from './llm';
+import { testConnectionWithOpenAI } from './openai';
 
 function redactSecrets(text: string): string {
   return (
@@ -38,6 +39,27 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
         const config = await getConfig();
         respond(sendResponse, { ok: true, data: config });
         return;
+      }
+      case 'TEST_LLM_CONNECTION': {
+        const config = await getConfig();
+        try {
+          if (config.llmProvider === 'openai') {
+            const baseUrl = String(config.openaiBaseUrl ?? '').trim();
+            const apiKey = String(config.openaiApiKey ?? '').trim();
+            const model = String(config.openaiModel ?? '').trim();
+            if (!baseUrl) throw new Error('未配置 OpenAI Base URL');
+            if (!apiKey) throw new Error('未配置 OpenAI API Key');
+            if (!model) throw new Error('未配置 Model');
+            await testConnectionWithOpenAI({ baseUrl, apiKey, model });
+            respond(sendResponse, { ok: true, data: { source: 'openai', modelTag: `openai:${model}` } });
+            return;
+          }
+          respond(sendResponse, { ok: false, error: '当前仅支持验证 OpenAI-compatible 连接' });
+          return;
+        } catch (err: any) {
+          respond(sendResponse, { ok: false, error: redactSecrets(String(err?.message ?? err)) });
+          return;
+        }
       }
       case 'SET_CONFIG': {
         await setConfig(message.config ?? {});

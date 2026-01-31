@@ -13,7 +13,9 @@ const manifest: ManifestV3Export = {
     'https://generativelanguage.googleapis.com/*',
     'https://api.openai.com/*',
     'https://api.x.ai/*',
-    'https://api.qnaigc.com/*'
+    'https://api.qnaigc.com/*',
+    'https://right.codes/*',
+    'https://*.right.codes/*'
   ],
   action: {
     default_title: 'BilibiliDry',

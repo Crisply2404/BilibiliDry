@@ -12,6 +12,7 @@
 | 202601281714 | reference_projects_benchmark | 调研 | [-]未执行 | `helloagents/history/2026-01/202601281714_reference_projects_benchmark/` |
 | 202601282335 | embedding_and_model_strategy | 规划 | [-]暂缓 | `helloagents/history/2026-01/202601282335_embedding_and_model_strategy/` |
 | 202601291851 | in_video_semantic_search | 功能 | ⚠️待验证 | `helloagents/history/2026-01/202601291851_in_video_semantic_search/` |
+| 202601311913 | reflection_gate_v1 | 功能 | ⚠️待验证 | `helloagents/history/2026-01/202601311913_reflection_gate_v1/` |
 
 ---
 
@@ -23,3 +24,4 @@
 - [202601281714_reference_projects_benchmark](2026-01/202601281714_reference_projects_benchmark/) - 对标升级：参考项目调研与路线图（未执行）
 - [202601282335_embedding_and_model_strategy](2026-01/202601282335_embedding_and_model_strategy/) - Embedding 与模型策略（暂缓/归档）
 - [202601291851_in_video_semantic_search](2026-01/202601291851_in_video_semantic_search/) - 本视频语义搜索（无 embedding，待验证）
+- [202601311913_reflection_gate_v1](2026-01/202601311913_reflection_gate_v1/) - Reflection Gate：字幕证据对齐校验（待验证）

@@ -22,6 +22,14 @@ export interface GeminiRerankItem {
   reason?: string;
 }
 
+export interface GeminiReflectionItem {
+  id: string;
+  verdict: 'pass' | 'weak' | 'fail';
+  alignmentScore: number; // 0..1
+  reason: string;
+  evidenceIndexes: number[]; // 1-based indices into provided evidence lines
+}
+
 export async function analyzeCaptionChunkWithGemini(params: {
   apiKey: string;
   bvid: string;
@@ -196,5 +204,94 @@ ${candidatesText}
           Number.isFinite(x.startTime) && Number.isFinite(x.endTime) && x.endTime > x.startTime && x.snippet.length > 0
       )
       .sort((a: GeminiRerankItem, b: GeminiRerankItem) => b.score - a.score)
+  };
+}
+
+export async function reflectSegmentsWithGemini(params: {
+  apiKey: string;
+  title: string;
+  segments: Array<{ id: string; startTime: number; endTime: number; summary: string; evidence: string[] }>;
+  model?: string;
+}): Promise<{ items: GeminiReflectionItem[] }> {
+  const ai = new GoogleGenAI({ apiKey: params.apiKey });
+
+  const systemInstruction = `
+你是一个严格的“字幕证据对齐校验”审计器（Reflection Gate）。
+目标：判断每个片段的 summary 是否被对应时间窗的字幕证据支持，并给出可解释的结论。
+要求：
+1) verdict 仅允许 pass/weak/fail。
+2) alignmentScore 为 0~1。
+3) reason 必须中文，<= 30 字。
+4) evidenceIndexes 必须是【输入字幕证据】的行号（1-based），最多 1~3 个；不得输出证据文本，不得翻译/改写。
+`;
+
+  const segText = params.segments
+    .slice(0, 8)
+    .map((s, i) => {
+      const evidence = (s.evidence ?? [])
+        .slice(0, 12)
+        .map((line, idx) => `${idx + 1}) ${line}`)
+        .join('\n');
+      return `${i + 1}. id=${s.id}\nstart=${s.startTime}\nend=${s.endTime}\nsummary=${s.summary}\n字幕证据(编号):\n${evidence}`;
+    })
+    .join('\n\n');
+
+  const prompt = `
+视频: ${params.title}
+
+请输出 JSON：
+{
+  "items": [
+    {"id":"...", "verdict":"pass", "alignmentScore": 0.9, "reason":"...", "evidenceIndexes":[1,3]}
+  ]
+}
+
+片段列表：
+${segText}
+`;
+
+  const response = await ai.models.generateContent({
+    model: params.model ?? 'gemini-3-flash-preview',
+    contents: prompt,
+    config: {
+      systemInstruction,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          items: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                verdict: { type: Type.STRING, enum: ['pass', 'weak', 'fail'] },
+                alignmentScore: { type: Type.NUMBER },
+                reason: { type: Type.STRING },
+                evidenceIndexes: { type: Type.ARRAY, items: { type: Type.NUMBER } }
+              },
+              required: ['id', 'verdict', 'alignmentScore', 'reason', 'evidenceIndexes']
+            }
+          }
+        },
+        required: ['items']
+      }
+    }
+  });
+
+  const data = JSON.parse(response.text || '{}');
+  const items = Array.isArray(data.items) ? data.items : [];
+  return {
+    items: items
+      .map((x: any) => ({
+        id: String(x.id ?? '').trim(),
+        verdict: String(x.verdict ?? 'weak') as any,
+        alignmentScore: Math.max(0, Math.min(1, Number(x.alignmentScore))),
+        reason: String(x.reason ?? '').trim(),
+        evidenceIndexes: Array.isArray(x.evidenceIndexes)
+          ? x.evidenceIndexes.map((n: any) => Math.floor(Number(n))).filter((n: number) => Number.isFinite(n) && n > 0)
+          : []
+      }))
+      .filter((x: GeminiReflectionItem) => x.id.length > 0 && x.reason.length > 0 && Number.isFinite(x.alignmentScore))
   };
 }

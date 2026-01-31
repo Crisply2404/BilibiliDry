@@ -26,9 +26,9 @@ export interface ExtensionConfig {
 
 const DEFAULT_CONFIG: ExtensionConfig = {
   llmProvider: 'gemini',
-  openaiBaseUrl: 'https://api.qnaigc.com/v1',
-  openaiModel: 'x-ai/grok-4.1-fast-reasoning',
-  openaiEmbeddingModel: 'text-embedding-3-small',
+  openaiBaseUrl: '',
+  openaiModel: '',
+  openaiEmbeddingModel: '',
   analysis: {
     chunkSec: 90,
     concurrency: 1,
@@ -102,9 +102,6 @@ export async function getConfig(): Promise<ExtensionConfig> {
 
   // Backward compatibility: older config had only geminiApiKey.
   if (!merged.llmProvider) merged.llmProvider = 'gemini';
-  if (!merged.openaiBaseUrl) merged.openaiBaseUrl = DEFAULT_CONFIG.openaiBaseUrl;
-  if (!merged.openaiModel) merged.openaiModel = DEFAULT_CONFIG.openaiModel;
-  if (!merged.openaiEmbeddingModel) merged.openaiEmbeddingModel = DEFAULT_CONFIG.openaiEmbeddingModel;
 
   return merged;
 }

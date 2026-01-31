@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AnalysisResult, Segment, LogicBlock } from '../types';
 import HeatmapBar from './HeatmapBar';
 import LogicBlocks from './LogicBlocks';
+import VerificationPanel from './VerificationPanel';
 import { Play, Pause, SkipForward, ArrowLeft, Download, Search, Share2 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 
@@ -151,8 +152,8 @@ const DashboardView: React.FC<DashboardViewProps> = ({ data, onBack }) => {
                     </AreaChart>
                 </ResponsiveContainer>
             </div>
-            <div className="mt-4 p-4 bg-gray-50 rounded-lg text-sm text-gray-600">
-                <strong className="text-gray-900">Agent 反思:</strong> 系统在 03:00 到 05:00 之间检测到较高的信息密度。关于“Server Component 序列化”的片段与此前索引的 React 官方文档语义高度一致。
+            <div className="mt-4">
+              <VerificationPanel segments={data.segments} maxItems={6} title="关键干货校验（字幕证据）" onSeek={handleSeek} />
             </div>
           </div>
         </div>

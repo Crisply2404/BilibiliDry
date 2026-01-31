@@ -25,6 +25,14 @@ export interface SegmentRecord {
   summary: string;
   rawText?: string;
   source: 'gemini' | 'openai' | 'heuristic';
+  verification?: {
+    verdict: 'pass' | 'weak' | 'fail';
+    alignmentScore: number;
+    reason: string;
+    evidence: string[];
+    checkedAt: string;
+    modelTag: string;
+  };
 }
 
 export interface EmbeddingRecord {

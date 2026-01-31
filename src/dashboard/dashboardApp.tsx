@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DashboardView from '../../components/DashboardView';
 import type { AnalysisResult, Segment } from '../../types';
 
@@ -33,6 +33,7 @@ const DashboardApp: React.FC = () => {
   const [video, setVideo] = useState<VideoRecord | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [error, setError] = useState<string>('');
+  const autoRefreshRef = useRef<{ videoId: string; tries: number; timer: number | null } | null>(null);
 
   useEffect(() => {
     const onHashChange = () => setVideoId(getVideoId());
@@ -58,6 +59,37 @@ const DashboardApp: React.FC = () => {
   useEffect(() => {
     refresh().catch((e) => setError(String(e?.message ?? e)));
   }, [refresh]);
+
+  useEffect(() => {
+    if (!videoId) return;
+    const hasVerification = segments.some((s: any) => Boolean(s?.verification));
+    if (hasVerification) {
+      const cur = autoRefreshRef.current;
+      if (cur?.timer) window.clearInterval(cur.timer);
+      autoRefreshRef.current = null;
+      return;
+    }
+
+    // Best-effort: dashboard may open before Reflection Gate finishes; poll for a short time.
+    if (autoRefreshRef.current?.videoId === videoId) return;
+    const timer = window.setInterval(() => {
+      const cur = autoRefreshRef.current;
+      if (!cur) return;
+      if (cur.tries >= 10) {
+        if (cur.timer) window.clearInterval(cur.timer);
+        autoRefreshRef.current = null;
+        return;
+      }
+      cur.tries += 1;
+      refresh().catch(() => {});
+    }, 1500);
+    autoRefreshRef.current = { videoId, tries: 0, timer };
+    return () => {
+      const cur = autoRefreshRef.current;
+      if (cur?.timer) window.clearInterval(cur.timer);
+      autoRefreshRef.current = null;
+    };
+  }, [refresh, segments, videoId]);
 
   const data = useMemo(() => {
     if (!video) return null;

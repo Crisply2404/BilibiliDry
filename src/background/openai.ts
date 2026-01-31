@@ -21,6 +21,14 @@ export interface OpenAIRerankItem {
   reason?: string;
 }
 
+export interface OpenAIReflectionItem {
+  id: string;
+  verdict: 'pass' | 'weak' | 'fail';
+  alignmentScore: number; // 0..1
+  reason: string;
+  evidenceIndexes: number[]; // 1-based indices into provided evidence lines
+}
+
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '');
 }
@@ -257,4 +265,121 @@ ${candidatesText}
       )
       .sort((a: OpenAIRerankItem, b: OpenAIRerankItem) => b.score - a.score)
   };
+}
+
+export async function reflectSegmentsWithOpenAI(params: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  title: string;
+  segments: Array<{ id: string; startTime: number; endTime: number; summary: string; evidence: string[] }>;
+  signal?: AbortSignal;
+}): Promise<{ items: OpenAIReflectionItem[] }> {
+  const baseUrl = normalizeBaseUrl(params.baseUrl);
+  const url = `${baseUrl}/chat/completions`;
+
+  const system = `
+你是一个严格的“字幕证据对齐校验”审计器（Reflection Gate）。
+目标：判断每个片段的 summary 是否被对应时间窗的字幕证据支持，并给出可解释的结论。
+要求：
+1) 输出必须是严格 JSON（不要 Markdown）。
+2) verdict 仅允许 pass/weak/fail：
+   - pass: 字幕明确支持 summary
+   - weak: 字幕大致相关但表述不充分/可能过度推断
+   - fail: 字幕不支持或明显不对齐
+3) alignmentScore 为 0~1（越大越对齐）。
+4) reason 必须中文，<= 30 字，说明判定原因。
+5) evidenceIndexes 必须是【输入字幕证据】的行号（1-based），最多 1~3 个；不得输出证据文本，不得翻译/改写。
+`;
+
+  const segText = params.segments
+    .slice(0, 8)
+    .map((s, i) => {
+      const evidence = (s.evidence ?? [])
+        .slice(0, 12)
+        .map((line, idx) => `${idx + 1}) ${line}`)
+        .join('\n');
+      return `${i + 1}. id=${s.id}\nstart=${s.startTime}\nend=${s.endTime}\nsummary=${s.summary}\n字幕证据(编号):\n${evidence}`;
+    })
+    .join('\n\n');
+
+  const user = `
+视频: ${params.title}
+
+请对以下片段逐个校验，并输出 JSON：
+{
+  "items": [
+    {"id":"...", "verdict":"pass", "alignmentScore": 0.9, "reason":"...", "evidenceIndexes":[1,3]}
+  ]
+}
+
+片段列表：
+${segText}
+`;
+
+  const bodyWithFormat = {
+    model: params.model,
+    temperature: 0.2,
+    messages: [
+      { role: 'system', content: system.trim() },
+      { role: 'user', content: user.trim() }
+    ],
+    response_format: { type: 'json_object' as const }
+  };
+
+  type ChatResp = { choices?: Array<{ message?: { content?: string } }> };
+
+  let resp: ChatResp;
+  try {
+    resp = await postJson<ChatResp>(url, params.apiKey, bodyWithFormat, params.signal);
+  } catch {
+    const bodyNoFormat = { ...bodyWithFormat };
+    delete (bodyNoFormat as any).response_format;
+    resp = await postJson<ChatResp>(url, params.apiKey, bodyNoFormat, params.signal);
+  }
+
+  const content = resp?.choices?.[0]?.message?.content ?? '';
+  const data = tryParseJsonObject(content) ?? {};
+  const items = Array.isArray((data as any).items) ? (data as any).items : [];
+
+  return {
+    items: items
+      .map((x: any) => ({
+        id: String(x.id ?? '').trim(),
+        verdict: (String(x.verdict ?? '').trim() as any) || 'weak',
+        alignmentScore: Math.max(0, Math.min(1, Number(x.alignmentScore))),
+        reason: String(x.reason ?? '').trim(),
+        evidenceIndexes: Array.isArray(x.evidenceIndexes)
+          ? x.evidenceIndexes.map((n: any) => Math.floor(Number(n))).filter((n: number) => Number.isFinite(n) && n > 0)
+          : []
+      }))
+      .filter(
+        (x: OpenAIReflectionItem) => x.id.length > 0 && x.reason.length > 0 && Number.isFinite(x.alignmentScore)
+      )
+  };
+}
+
+export async function testConnectionWithOpenAI(params: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const baseUrl = normalizeBaseUrl(params.baseUrl);
+  const url = `${baseUrl}/chat/completions`;
+  await postJson<any>(
+    url,
+    params.apiKey,
+    {
+      model: params.model,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: 'You are a connection test.' },
+        { role: 'user', content: 'Reply with JSON: {"ok": true}' }
+      ],
+      response_format: { type: 'json_object' as const },
+      max_tokens: 16
+    },
+    params.signal
+  );
 }

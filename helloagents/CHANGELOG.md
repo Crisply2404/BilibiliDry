@@ -8,7 +8,10 @@
 ### 新增
 - 参考项目拆解报告（`helloagents/wiki/resources/reference-projects/`）。
 - BilibiliDry 对标报告与路线图（`helloagents/wiki/resources/bilibilidry_benchmark.md`）。
-- 对标升级方案包（`helloagents/plan/202601281714_reference_projects_benchmark/`）。
+- 对标升级方案包（`helloagents/history/2026-01/202601281714_reference_projects_benchmark/`）。
+- Reflection Gate：字幕证据对齐校验（pass/weak/fail）+ 自动降置信度 + UI 展示（Overlay/Dashboard）+ Markdown 导出标记。
+- Overlay UI：可拖拽面板 + 悬浮球（缩小/关闭），并在刷新后提供悬浮球作为重新入口。
+- BYOK：支持从 `.env.local` 自动导入 OpenAI-compatible 配置（无需在设置页重复输入）。
 
 ## [0.1.0] - 2026-01-27
 

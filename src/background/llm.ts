@@ -1,7 +1,7 @@
 import type { ContentType } from '../../types';
 import type { ExtensionConfig } from '../shared/storage';
-import { analyzeCaptionChunkWithGemini, embedTextWithGemini, rerankCandidatesWithGemini } from './gemini';
-import { analyzeCaptionChunkWithOpenAI, embedTextWithOpenAI, rerankCandidatesWithOpenAI } from './openai';
+import { analyzeCaptionChunkWithGemini, embedTextWithGemini, reflectSegmentsWithGemini, rerankCandidatesWithGemini } from './gemini';
+import { analyzeCaptionChunkWithOpenAI, embedTextWithOpenAI, reflectSegmentsWithOpenAI, rerankCandidatesWithOpenAI } from './openai';
 
 export type LlmSource = 'gemini' | 'openai';
 
@@ -26,9 +26,18 @@ export interface LlmRerankItem {
   reason?: string;
 }
 
+export interface LlmReflectionItem {
+  id: string;
+  verdict: 'pass' | 'weak' | 'fail';
+  alignmentScore: number;
+  reason: string;
+  evidenceIndexes: number[]; // 1-based indices into provided evidence lines
+}
+
 export function getActiveLlm(config: ExtensionConfig): {
   source: LlmSource;
   embeddingModelTag: string;
+  modelTag: string;
   analyzeChunk: (args: {
     bvid: string;
     title: string;
@@ -38,6 +47,11 @@ export function getActiveLlm(config: ExtensionConfig): {
     signal?: AbortSignal;
   }) => Promise<LlmChunkResult>;
   embedText: (args: { text: string; signal?: AbortSignal }) => Promise<number[]>;
+  reflectSegments: (args: {
+    title: string;
+    segments: Array<{ id: string; startTime: number; endTime: number; summary: string; evidence: string[] }>;
+    signal?: AbortSignal;
+  }) => Promise<{ items: LlmReflectionItem[] }>;
   rerankCandidates: (args: {
     videoId: string;
     title: string;
@@ -58,6 +72,7 @@ export function getActiveLlm(config: ExtensionConfig): {
     return {
       source: 'openai',
       embeddingModelTag: `openai:${embeddingModel}`,
+      modelTag: `openai:${model}`,
       analyzeChunk: async (args) =>
         analyzeCaptionChunkWithOpenAI({
           baseUrl,
@@ -70,8 +85,16 @@ export function getActiveLlm(config: ExtensionConfig): {
           transcript: args.transcript,
           signal: args.signal
         }),
-      embedText: async (args) => embedTextWithOpenAI({ baseUrl, apiKey, model: embeddingModel, text: args.text, signal: args.signal })
-      ,
+      embedText: async (args) => embedTextWithOpenAI({ baseUrl, apiKey, model: embeddingModel, text: args.text, signal: args.signal }),
+      reflectSegments: async (args) =>
+        reflectSegmentsWithOpenAI({
+          baseUrl,
+          apiKey,
+          model,
+          title: args.title,
+          segments: args.segments,
+          signal: args.signal
+        }),
       rerankCandidates: async (args) =>
         rerankCandidatesWithOpenAI({
           baseUrl,
@@ -88,9 +111,11 @@ export function getActiveLlm(config: ExtensionConfig): {
 
   const apiKey = config.geminiApiKey?.trim();
   if (!apiKey) throw new Error('未配置 API Key（请在设置页填写）');
+  const model = 'gemini-3-flash-preview';
   return {
     source: 'gemini',
     embeddingModelTag: 'gemini:text-embedding-004',
+    modelTag: `gemini:${model}`,
     analyzeChunk: async (args) =>
       analyzeCaptionChunkWithGemini({
         apiKey,
@@ -98,17 +123,25 @@ export function getActiveLlm(config: ExtensionConfig): {
         title: args.title,
         chunkStartSec: args.chunkStartSec,
         chunkEndSec: args.chunkEndSec,
-        transcript: args.transcript
+        transcript: args.transcript,
+        model
       }),
-    embedText: async (args) => embedTextWithGemini({ apiKey, text: args.text })
-    ,
+    embedText: async (args) => embedTextWithGemini({ apiKey, text: args.text }),
+    reflectSegments: async (args) =>
+      reflectSegmentsWithGemini({
+        apiKey,
+        title: args.title,
+        segments: args.segments,
+        model
+      }),
     rerankCandidates: async (args) =>
       rerankCandidatesWithGemini({
         apiKey,
         title: args.title,
         query: args.query,
         topK: args.topK,
-        candidates: args.candidates.map((c) => ({ startTime: c.startTime, endTime: c.endTime, summary: c.summary }))
+        candidates: args.candidates.map((c) => ({ startTime: c.startTime, endTime: c.endTime, summary: c.summary })),
+        model
       })
   };
 }

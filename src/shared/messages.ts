@@ -21,6 +21,7 @@ export type BackgroundRequest =
   | { type: 'PING' }
   | { type: 'GET_CONFIG' }
   | { type: 'SET_CONFIG'; config: Record<string, unknown> }
+  | { type: 'TEST_LLM_CONNECTION' }
   | { type: 'CLEAR_LOCAL_DATA' }
   | { type: 'GET_VIDEO_CONTEXT'; bvid: string }
   | { type: 'GET_VIDEO_STATE'; videoId: string }
@@ -37,7 +38,8 @@ export type BackgroundResponse =
 export type BackgroundPush =
   | { type: 'ANALYSIS_UPDATE'; videoId: string; progress: number; segments?: Segment[] }
   | { type: 'ANALYSIS_ERROR'; videoId: string; error: string }
-  | { type: 'ANALYSIS_DONE'; videoId: string };
+  | { type: 'ANALYSIS_DONE'; videoId: string }
+  | { type: 'REFLECTION_UPDATE'; videoId: string; progress: number; completed: number; total: number; segments?: Segment[] };
 
 export interface VideoContext {
   videoId: string;

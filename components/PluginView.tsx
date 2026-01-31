@@ -2,6 +2,7 @@ import React from 'react';
 import { AnalysisResult, ContentType } from '../types';
 import HeatmapBar from './HeatmapBar';
 import HeatmapLegend from './HeatmapLegend';
+import VerificationPanel from './VerificationPanel';
 import { ExternalLink, Zap, Activity, Minus, X } from 'lucide-react';
 
 interface PluginViewProps {
@@ -15,6 +16,7 @@ interface PluginViewProps {
   subtitle?: string;
   error?: string;
   progress?: number; // 0..1
+  verificationStatus?: { progress: number; completed: number; total: number };
   heatmap?: {
     currentTime: number;
     onSeek: (time: number) => void;
@@ -34,6 +36,7 @@ const PluginView: React.FC<PluginViewProps> = ({
   subtitle,
   error,
   progress,
+  verificationStatus,
   heatmap,
   extra
 }) => {
@@ -176,6 +179,19 @@ const PluginView: React.FC<PluginViewProps> = ({
                 <div>
                     <h3 className="text-xs font-bold uppercase text-gray-400 mb-2">核心摘要</h3>
                     <p className="text-sm text-gray-700 leading-snug whitespace-pre-line">{data.overallSummary}</p>
+                </div>
+
+                {/* Reflection Gate */}
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xs font-bold uppercase text-gray-400">Reflection Gate</h3>
+                      {verificationStatus && (
+                        <div className="text-[11px] text-gray-500 font-mono">
+                          校验 {verificationStatus.completed}/{verificationStatus.total}
+                        </div>
+                      )}
+                    </div>
+                    <VerificationPanel segments={data.segments} maxItems={6} title="关键干货校验" status={verificationStatus} onSeek={heatmapOnSeek} />
                 </div>
 
                 {/* Quick Actions */}
