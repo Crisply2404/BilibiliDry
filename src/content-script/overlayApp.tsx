@@ -186,10 +186,14 @@ const OverlayApp: React.FC = () => {
   const [videoTitle, setVideoTitle] = useState<string>('');
   const [durationSec, setDurationSec] = useState<number>(0);
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [previousSegments, setPreviousSegments] = useState<Segment[] | null>(null);
+  const [segmentsView, setSegmentsView] = useState<'current' | 'previous'>('current');
   const [progress, setProgress] = useState<number>(0);
   const [error, setError] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [reflection, setReflection] = useState<{ progress: number; completed: number; total: number } | null>(null);
+  const pendingSegmentsRef = useRef<Map<string, Segment>>(new Map());
+  const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
 
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<SearchResultItem[]>([]);
@@ -309,13 +313,17 @@ const OverlayApp: React.FC = () => {
   useEffect(() => {
     const tick = () => {
       const video = getVideoElement();
-      if (video) lastKnownTimeRef.current = video.currentTime || 0;
+      if (video) {
+        const t = video.currentTime || 0;
+        lastKnownTimeRef.current = t;
+        setCurrentTimeSec(t);
+      }
     };
-    const id = window.setInterval(tick, 500);
+    const id = window.setInterval(tick, 250);
     return () => window.clearInterval(id);
   }, []);
 
-  const refreshState = useCallback(async (nextVideoId?: string) => {
+  const refreshState = useCallback(async (nextVideoId?: string, opts?: { setSegments?: boolean }) => {
     const id = nextVideoId ?? videoId ?? bvid;
     if (!id) return;
     const resp = await chrome.runtime.sendMessage({ type: 'GET_VIDEO_STATE', videoId: id });
@@ -325,6 +333,7 @@ const OverlayApp: React.FC = () => {
       setVideoId(resp.data.video.videoId ?? id);
     }
     if (resp?.ok && Array.isArray(resp.data?.segments)) {
+      if (opts?.setSegments === false) return;
       // Avoid wiping in-memory results while the background is still persisting data.
       if (resp.data.segments.length > 0 || segmentsRef.current.length === 0) {
         setSegments(resp.data.segments);
@@ -373,10 +382,27 @@ const OverlayApp: React.FC = () => {
         setVideoTitle('');
         setDurationSec(0);
         setSegments([]);
+        setPreviousSegments(null);
+        setSegmentsView('current');
+        pendingSegmentsRef.current = new Map();
       }
     }, 500);
     return () => window.clearInterval(timer);
   }, [bvid, page, refreshState]);
+
+  const activeSegments = useMemo(() => {
+    if (segmentsView === 'previous' && previousSegments) return previousSegments;
+    return segments;
+  }, [previousSegments, segments, segmentsView]);
+
+  const mergeSegments = useCallback((base: Segment[], incoming: Segment[]): Segment[] => {
+    const next = new Map(base.map((s) => [s.id, s] as const));
+    for (const s of incoming) {
+      const old = next.get(s.id);
+      next.set(s.id, old ? { ...old, ...s } : s);
+    }
+    return Array.from(next.values());
+  }, []);
 
   useEffect(() => {
     chrome.runtime
@@ -407,11 +433,7 @@ const OverlayApp: React.FC = () => {
         setError('');
         setProgress(message.progress);
         if (Array.isArray(message.segments) && message.segments.length > 0) {
-          setSegments((prev) => {
-            const next = new Map(prev.map((s) => [s.id, s] as const));
-            for (const s of message.segments!) next.set(s.id, s);
-            return Array.from(next.values());
-          });
+          for (const s of message.segments) pendingSegmentsRef.current.set(s.id, s);
         }
         return;
       }
@@ -419,32 +441,36 @@ const OverlayApp: React.FC = () => {
         if (uiModeRef.current === 'closed') setUiMode('open');
         setIsAnalyzing(false);
         setProgress(1);
-        refreshState(message.videoId).catch(() => {});
+        const nextSegments = Array.from(pendingSegmentsRef.current.values());
+        if (nextSegments.length > 0) {
+          if (segmentsRef.current.length > 0) setPreviousSegments(segmentsRef.current);
+          setSegments(nextSegments);
+          setSegmentsView('current');
+        }
+        pendingSegmentsRef.current = new Map();
+        refreshState(message.videoId, { setSegments: false }).catch(() => {});
         return;
       }
       if (message.type === 'REFLECTION_UPDATE') {
         if (uiModeRef.current === 'closed') setUiMode('open');
         setReflection({ progress: message.progress, completed: message.completed, total: message.total });
         if (Array.isArray(message.segments) && message.segments.length > 0) {
-          setSegments((prev) => {
-            const next = new Map(prev.map((s) => [s.id, s] as const));
-            for (const s of message.segments!) {
-              const old = next.get(s.id);
-              next.set(s.id, old ? { ...old, ...s } : s);
-            }
-            return Array.from(next.values());
-          });
+          setSegments((prev) => mergeSegments(prev, message.segments!));
+          setPreviousSegments((prev) => (prev ? mergeSegments(prev, message.segments!) : prev));
         }
         return;
       }
     };
     chrome.runtime.onMessage.addListener(handler as any);
     return () => chrome.runtime.onMessage.removeListener(handler as any);
-  }, []);
+  }, [mergeSegments, refreshState]);
 
   const startAnalysis = useCallback(async () => {
     if (!bvid) return;
     setError('');
+    if (segmentsRef.current.length > 0) setPreviousSegments(segmentsRef.current);
+    setSegmentsView('current');
+    pendingSegmentsRef.current = new Map();
     setIsAnalyzing(true);
     setProgress(0);
     setReflection(null);
@@ -502,13 +528,13 @@ const OverlayApp: React.FC = () => {
       setError('未找到播放器 video 元素');
       return;
     }
-    const next = getNextDryStart(segments, video.currentTime || 0);
+    const next = getNextDryStart(activeSegments, video.currentTime || 0);
     if (next == null) {
       setError('未找到下一个干货片段');
       return;
     }
     video.currentTime = next;
-  }, [segments]);
+  }, [activeSegments]);
 
   useEffect(() => {
     if (!autoSkip) return;
@@ -516,19 +542,22 @@ const OverlayApp: React.FC = () => {
       const video = getVideoElement();
       if (!video) return;
       const t = video.currentTime || 0;
-      const current = segments.find((s) => t >= s.startTime && t < s.endTime);
+      const current = activeSegments.find((s) => t >= s.startTime && t < s.endTime);
       if (!current || current.type !== ContentType.WATER) return;
-      const next = getNextDryStart(segments, t);
+      const next = getNextDryStart(activeSegments, t);
       if (next == null) return;
       video.currentTime = next;
     }, 600);
     return () => window.clearInterval(timer);
-  }, [autoSkip, segments]);
+  }, [activeSegments, autoSkip]);
 
   const seek = useCallback((time: number) => {
     const video = getVideoElement();
     if (!video) return;
-    video.currentTime = Math.max(0, time);
+    const t = Math.max(0, time);
+    video.currentTime = t;
+    lastKnownTimeRef.current = t;
+    setCurrentTimeSec(t);
   }, []);
 
   const cancel = useCallback(async () => {
@@ -581,20 +610,20 @@ const OverlayApp: React.FC = () => {
   }, [bvid, query, videoId]);
 
   const dryPercent = useMemo(() => {
-    if (!durationSec || segments.length === 0) return 0;
-    const dry = segments
+    if (!durationSec || activeSegments.length === 0) return 0;
+    const dry = activeSegments
       .filter((s) => s.type === ContentType.DRY)
       .reduce((acc, cur) => acc + Math.max(0, cur.endTime - cur.startTime), 0);
     return Math.round((dry / durationSec) * 100);
-  }, [durationSec, segments]);
+  }, [activeSegments, durationSec]);
 
   const analysisData: AnalysisResult | null = useMemo(() => {
     const id = videoId ?? bvid;
     if (!id) return null;
     if (!durationSec || !Number.isFinite(durationSec) || durationSec <= 0) return null;
-    if (segments.length === 0) return null;
+    if (activeSegments.length === 0) return null;
 
-    const dry = segments
+    const dry = activeSegments
       .filter((s) => s.type === ContentType.DRY)
       .slice()
       .sort((a, b) => b.confidence - a.confidence)
@@ -606,12 +635,12 @@ const OverlayApp: React.FC = () => {
       videoId: id,
       title: videoTitle || bvid || id,
       totalDuration: durationSec,
-      segments,
+      segments: activeSegments,
       logicBlocks: [],
       overallSummary: dry ? `本视频干货要点：\n${dry}` : '暂无摘要（请先分析）。',
       processedAt: new Date().toISOString()
     };
-  }, [bvid, durationSec, segments, videoId, videoTitle]);
+  }, [activeSegments, bvid, durationSec, videoId, videoTitle]);
 
   const openDashboard = useCallback(() => {
     const id = videoId ?? bvid;
@@ -680,7 +709,7 @@ const OverlayApp: React.FC = () => {
             heatmap={
               analysisData
                 ? {
-                    currentTime: lastKnownTimeRef.current,
+                    currentTime: currentTimeSec,
                     onSeek: seek,
                     interactive: true
                   }
@@ -689,18 +718,26 @@ const OverlayApp: React.FC = () => {
             extra={
               analysisData ? (
                 <div className="space-y-3">
+                  {previousSegments && !isAnalyzing && (
+                    <button
+                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50"
+                      onClick={() => setSegmentsView((v) => (v === 'current' ? 'previous' : 'current'))}
+                    >
+                      {segmentsView === 'current' ? '查看上次分析' : '返回本次分析'}
+                    </button>
+                  )}
                   <div className="flex gap-2">
                     <button
                       className="flex-1 rounded-lg bg-bilibili-pink px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-40"
                       onClick={skip}
-                      disabled={segments.length === 0}
+                      disabled={activeSegments.length === 0}
                     >
                       一键跳过注水
                     </button>
                     <button
                       className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-40"
                       onClick={doExport}
-                      disabled={segments.length === 0}
+                      disabled={activeSegments.length === 0}
                     >
                       导出 MD
                     </button>
@@ -772,7 +809,7 @@ const OverlayApp: React.FC = () => {
                   <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
                     <div className="text-xs font-semibold text-gray-700">干货热力图</div>
                     <div className="mt-2">
-                      <HeatmapBar segments={segments} totalDuration={durationSec || 1} currentTime={lastKnownTimeRef.current} onSeek={seek} />
+                      <HeatmapBar segments={activeSegments} totalDuration={durationSec || 1} currentTime={currentTimeSec} onSeek={seek} />
                     </div>
                     <div className="mt-2 flex justify-between text-[10px] text-gray-400 font-mono">
                       <span>0:00</span>

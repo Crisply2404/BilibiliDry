@@ -1,7 +1,7 @@
 import type { ContentType } from '../../types';
 import type { ExtensionConfig } from '../shared/storage';
-import { analyzeCaptionChunkWithGemini, embedTextWithGemini, reflectSegmentsWithGemini, rerankCandidatesWithGemini } from './gemini';
-import { analyzeCaptionChunkWithOpenAI, embedTextWithOpenAI, reflectSegmentsWithOpenAI, rerankCandidatesWithOpenAI } from './openai';
+import { analyzeCaptionChunkWithGemini, embedTextWithGemini, repairSegmentsWithGemini, rerankCandidatesWithGemini, verifySegmentsWithGemini } from './gemini';
+import { analyzeCaptionChunkWithOpenAI, embedTextWithOpenAI, repairSegmentsWithOpenAI, rerankCandidatesWithOpenAI, verifySegmentsWithOpenAI } from './openai';
 
 export type LlmSource = 'gemini' | 'openai';
 
@@ -34,6 +34,11 @@ export interface LlmReflectionItem {
   evidenceIndexes: number[]; // 1-based indices into provided evidence lines
 }
 
+export interface LlmRepairItem extends LlmReflectionItem {
+  suggestedStartTime: number; // absolute seconds
+  suggestedEndTime: number; // absolute seconds
+}
+
 export function getActiveLlm(config: ExtensionConfig): {
   source: LlmSource;
   embeddingModelTag: string;
@@ -47,11 +52,24 @@ export function getActiveLlm(config: ExtensionConfig): {
     signal?: AbortSignal;
   }) => Promise<LlmChunkResult>;
   embedText: (args: { text: string; signal?: AbortSignal }) => Promise<number[]>;
-  reflectSegments: (args: {
+  verifySegments: (args: {
     title: string;
     segments: Array<{ id: string; startTime: number; endTime: number; summary: string; evidence: string[] }>;
     signal?: AbortSignal;
   }) => Promise<{ items: LlmReflectionItem[] }>;
+  repairSegments: (args: {
+    title: string;
+    segments: Array<{
+      id: string;
+      startTime: number;
+      endTime: number;
+      summary: string;
+      evidence: string[];
+      windowStartTime: number;
+      windowEndTime: number;
+    }>;
+    signal?: AbortSignal;
+  }) => Promise<{ items: LlmRepairItem[] }>;
   rerankCandidates: (args: {
     videoId: string;
     title: string;
@@ -86,8 +104,17 @@ export function getActiveLlm(config: ExtensionConfig): {
           signal: args.signal
         }),
       embedText: async (args) => embedTextWithOpenAI({ baseUrl, apiKey, model: embeddingModel, text: args.text, signal: args.signal }),
-      reflectSegments: async (args) =>
-        reflectSegmentsWithOpenAI({
+      verifySegments: async (args) =>
+        verifySegmentsWithOpenAI({
+          baseUrl,
+          apiKey,
+          model,
+          title: args.title,
+          segments: args.segments,
+          signal: args.signal
+        }),
+      repairSegments: async (args) =>
+        repairSegmentsWithOpenAI({
           baseUrl,
           apiKey,
           model,
@@ -127,8 +154,15 @@ export function getActiveLlm(config: ExtensionConfig): {
         model
       }),
     embedText: async (args) => embedTextWithGemini({ apiKey, text: args.text }),
-    reflectSegments: async (args) =>
-      reflectSegmentsWithGemini({
+    verifySegments: async (args) =>
+      verifySegmentsWithGemini({
+        apiKey,
+        title: args.title,
+        segments: args.segments,
+        model
+      }),
+    repairSegments: async (args) =>
+      repairSegmentsWithGemini({
         apiKey,
         title: args.title,
         segments: args.segments,

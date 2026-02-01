@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useRef } from 'react';
 import { Segment, ContentType } from '../types';
 
 interface HeatmapBarProps {
@@ -16,22 +16,46 @@ const HeatmapBar: React.FC<HeatmapBarProps> = ({
   onSeek,
   interactive = true 
 }) => {
-  
-  const handleBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!interactive) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const percentage = x / rect.width;
-    const newTime = percentage * totalDuration;
-    onSeek(newTime);
-  };
+  const draggingRef = useRef(false);
+
+  const seekFromClientX = useCallback(
+    (el: HTMLDivElement, clientX: number) => {
+      if (!interactive) return;
+      const rect = el.getBoundingClientRect();
+      const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+      const percentage = rect.width > 0 ? x / rect.width : 0;
+      const newTime = percentage * totalDuration;
+      onSeek(newTime);
+    },
+    [interactive, onSeek, totalDuration]
+  );
 
   return (
     <div className="w-full flex flex-col gap-1">
       {/* The main Heatmap Bar */}
       <div 
         className={`relative h-4 w-full bg-gray-200 rounded-sm overflow-hidden ${interactive ? 'cursor-pointer' : ''}`}
-        onClick={handleBarClick}
+        onPointerDown={(e) => {
+          if (!interactive) return;
+          draggingRef.current = true;
+          try {
+            (e.currentTarget as any).setPointerCapture?.(e.pointerId);
+          } catch {
+            // ignore
+          }
+          seekFromClientX(e.currentTarget, e.clientX);
+        }}
+        onPointerMove={(e) => {
+          if (!interactive) return;
+          if (!draggingRef.current) return;
+          seekFromClientX(e.currentTarget, e.clientX);
+        }}
+        onPointerUp={() => {
+          draggingRef.current = false;
+        }}
+        onPointerCancel={() => {
+          draggingRef.current = false;
+        }}
       >
         {segments.map((segment) => {
           const widthPercent = ((segment.endTime - segment.startTime) / totalDuration) * 100;
@@ -61,9 +85,12 @@ const HeatmapBar: React.FC<HeatmapBarProps> = ({
         })}
 
         {/* Current Time Indicator */}
-        <div 
-          className="absolute top-0 bottom-0 w-1 bg-bilibili-pink z-10 shadow-md"
-          style={{ left: `${(currentTime / totalDuration) * 100}%` }}
+        <div
+          className="pointer-events-none absolute top-0 bottom-0 w-[2px] bg-bilibili-pink z-10 shadow-sm"
+          style={{
+            left: `${Math.max(0, Math.min(100, (currentTime / totalDuration) * 100))}%`,
+            transform: 'translateX(-50%)'
+          }}
         />
       </div>
     </div>

@@ -97,6 +97,12 @@ export const VerificationPanel: React.FC<{
 
               {opened && (
                 <div className="border-t border-gray-100 p-2">
+                  {v.repairedFrom && (
+                    <div className="mb-2 text-[11px] text-gray-600">
+                      已自动修正时间戳：{formatTime(v.repairedFrom.startTime)}–{formatTime(v.repairedFrom.endTime)} →{' '}
+                      {formatTime(s.startTime)}–{formatTime(s.endTime)}
+                    </div>
+                  )}
                   <div className="text-[11px] text-gray-500">字幕证据（节选）</div>
                   <div className="mt-1 space-y-1">
                     {(v.evidence ?? []).slice(0, 6).map((line, idx) => (

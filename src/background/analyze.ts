@@ -44,22 +44,44 @@ function buildEvidenceLines(params: {
   padSec: number;
   maxLines: number;
   maxChars: number;
+  perLineMaxChars?: number;
 }): string[] {
   const start = Math.max(0, params.startTime - params.padSec);
   const end = Math.max(start, params.endTime + params.padSec);
-  const picked = params.lines
+  const perLineMax = Math.max(30, Math.floor(Number(params.perLineMaxChars ?? 120)));
+  const pickedAll = params.lines
     .filter((l) => Number.isFinite(l.from) && Number.isFinite(l.to) && l.to >= start && l.from <= end)
     .sort((a, b) => a.from - b.from)
     .map((l) => `[${formatTime(l.from)}] ${String(l.content ?? '').trim()}`.trim())
     .filter((t) => t.length > 0);
 
+  const picked =
+    pickedAll.length > params.maxLines
+      ? Array.from(
+          new Set(
+            Array.from({ length: Math.max(1, params.maxLines) }, (_, i) => {
+              if (pickedAll.length === 1) return 0;
+              const idx = Math.round((i * (pickedAll.length - 1)) / Math.max(1, params.maxLines - 1));
+              return clamp(idx, 0, pickedAll.length - 1);
+            })
+          )
+        )
+          .sort((a, b) => a - b)
+          .map((i) => pickedAll[i])
+      : pickedAll;
+
   const out: string[] = [];
   let chars = 0;
   for (const line of picked) {
     if (out.length >= params.maxLines) break;
-    if (chars + line.length > params.maxChars) break;
-    out.push(line.length > 120 ? `${line.slice(0, 120)}…` : line);
-    chars += line.length;
+    const trimmed = line.length > perLineMax ? `${line.slice(0, perLineMax)}…` : line;
+    if (chars + trimmed.length > params.maxChars) {
+      const remain = params.maxChars - chars;
+      if (remain > 24) out.push(`${trimmed.slice(0, Math.max(20, remain - 1))}…`);
+      break;
+    }
+    out.push(trimmed);
+    chars += trimmed.length;
   }
   return out;
 }
@@ -224,7 +246,9 @@ export function startIncrementalAnalysis(params: {
       for (let i = 0; i < candidates.length; i += batchSize) {
         if (controller.signal.aborted) return;
         const batch = candidates.slice(i, i + batchSize);
-        const reflectInput = batch.map((s) => ({
+        const baseConfidenceById = new Map(batch.map((s) => [s.id, s.confidence] as const));
+
+        const verifyInput = batch.map((s) => ({
           id: s.id,
           startTime: s.startTime,
           endTime: s.endTime,
@@ -239,45 +263,143 @@ export function startIncrementalAnalysis(params: {
           })
         }));
 
-        const resp = await llm.reflectSegments({ title: view.title, segments: reflectInput, signal: controller.signal });
-        const byId = new Map(resp.items.map((x) => [x.id, x] as const));
-        const evidenceById = new Map(reflectInput.map((x) => [x.id, x.evidence] as const));
-
-        const updated: SegmentRecord[] = [];
-        for (const seg of batch) {
-          const item = byId.get(seg.id);
-          if (!item) continue;
-          const verdict =
-            item.verdict === 'pass' || item.verdict === 'weak' || item.verdict === 'fail' ? item.verdict : 'weak';
-          const originalEvidence = evidenceById.get(seg.id) ?? [];
-          const evidence = (Array.isArray(item.evidenceIndexes) ? item.evidenceIndexes : [])
+        const pickEvidence = (originalEvidence: string[], evidenceIndexes: unknown): string[] => {
+          const picked = (Array.isArray(evidenceIndexes) ? evidenceIndexes : [])
             .map((n) => Math.floor(Number(n)))
             .filter((n) => Number.isFinite(n) && n >= 1 && n <= originalEvidence.length)
             .filter((n, idx, arr) => arr.indexOf(n) === idx)
             .slice(0, 3)
             .map((n) => originalEvidence[n - 1])
             .filter(Boolean);
+          return picked.length > 0 ? picked : originalEvidence.slice(0, 3);
+        };
+
+        const verifyResp = await llm.verifySegments({ title: view.title, segments: verifyInput, signal: controller.signal });
+        const verifyById = new Map(verifyResp.items.map((x) => [x.id, x] as const));
+        const verifyEvidenceById = new Map(verifyInput.map((x) => [x.id, x.evidence] as const));
+
+        const updated: SegmentRecord[] = [];
+        const toRepair: SegmentRecord[] = [];
+        for (const seg of batch) {
+          const item = verifyById.get(seg.id);
+          if (!item) continue;
+          const verdict =
+            item.verdict === 'pass' || item.verdict === 'weak' || item.verdict === 'fail' ? item.verdict : 'weak';
+          const originalEvidence = verifyEvidenceById.get(seg.id) ?? [];
+          const evidence = pickEvidence(originalEvidence, item.evidenceIndexes);
           const reason = String(item.reason ?? '').trim();
           if (!reason) continue;
 
+          const baseConfidence = baseConfidenceById.get(seg.id) ?? seg.confidence;
           const next: SegmentRecord = {
             ...seg,
-            confidence: adjustConfidence(seg.confidence, verdict),
+            confidence: adjustConfidence(baseConfidence, verdict),
             verification: {
               verdict,
               alignmentScore: clamp(Number(item.alignmentScore), 0, 1),
               reason: reason.length > 40 ? `${reason.slice(0, 40)}…` : reason,
-              evidence: evidence.length > 0 ? evidence : originalEvidence.slice(0, 3),
+              evidence,
               checkedAt: new Date().toISOString(),
               modelTag: llm.modelTag
             }
           };
           updated.push(next);
+          if (verdict === 'fail') toRepair.push(next);
         }
 
+        // Stage 1: store verification result immediately so UI has something to show.
         if (updated.length > 0) await putSegments(updated);
 
+        // Stage 2 (repair): only for failed segments, in a larger evidence window.
+        const repaired: SegmentRecord[] = [];
+        if (toRepair.length > 0) {
+          const repairPadSec = 90;
+          const repairInput = toRepair.map((s) => {
+            const windowStartTime = clamp(s.startTime - repairPadSec, 0, view.durationSec);
+            const windowEndTime = clamp(s.endTime + repairPadSec, 0, view.durationSec);
+            return {
+              id: s.id,
+              startTime: s.startTime,
+              endTime: s.endTime,
+              summary: s.summary,
+              windowStartTime,
+              windowEndTime,
+              evidence: buildEvidenceLines({
+                lines,
+                startTime: s.startTime,
+                endTime: s.endTime,
+                padSec: repairPadSec,
+                maxLines: 28,
+                maxChars: 2400,
+                perLineMaxChars: 80
+              })
+            };
+          });
+
+          const repairResp = await llm.repairSegments({ title: view.title, segments: repairInput, signal: controller.signal });
+          const repairById = new Map(repairResp.items.map((x) => [x.id, x] as const));
+          const repairEvidenceById = new Map(repairInput.map((x) => [x.id, x.evidence] as const));
+          const windowById = new Map(repairInput.map((x) => [x.id, { windowStartTime: x.windowStartTime, windowEndTime: x.windowEndTime }] as const));
+
+          for (const seg of toRepair) {
+            const item = repairById.get(seg.id);
+            if (!item) continue;
+            const verdict =
+              item.verdict === 'pass' || item.verdict === 'weak' || item.verdict === 'fail' ? item.verdict : 'weak';
+            const originalEvidence = repairEvidenceById.get(seg.id) ?? [];
+            const evidence = pickEvidence(originalEvidence, item.evidenceIndexes);
+            const reason = String(item.reason ?? '').trim();
+            if (!reason) continue;
+
+            const baseConfidence = baseConfidenceById.get(seg.id) ?? seg.confidence;
+            const win = windowById.get(seg.id);
+            const ws = win ? win.windowStartTime : 0;
+            const we = win ? win.windowEndTime : view.durationSec;
+
+            const suggestedStartTime = Number(item.suggestedStartTime);
+            const suggestedEndTime = Number(item.suggestedEndTime);
+
+            const canApplyRepair =
+              verdict !== 'fail' &&
+              Number.isFinite(suggestedStartTime) &&
+              Number.isFinite(suggestedEndTime) &&
+              suggestedEndTime > suggestedStartTime;
+
+            const nextStart = canApplyRepair ? clamp(suggestedStartTime, ws, we) : seg.startTime;
+            const nextEnd = canApplyRepair ? clamp(suggestedEndTime, ws, we) : seg.endTime;
+
+            if (canApplyRepair && nextEnd <= nextStart) continue;
+
+            const next: SegmentRecord = {
+              ...seg,
+              startTime: nextStart,
+              endTime: nextEnd,
+              confidence: adjustConfidence(baseConfidence, verdict),
+              verification: {
+                verdict,
+                alignmentScore: clamp(Number(item.alignmentScore), 0, 1),
+                reason: reason.length > 40 ? `${reason.slice(0, 40)}…` : reason,
+                evidence,
+                checkedAt: new Date().toISOString(),
+                modelTag: llm.modelTag,
+                ...(canApplyRepair
+                  ? {
+                      repairedFrom: { startTime: seg.startTime, endTime: seg.endTime },
+                      repairedAt: new Date().toISOString()
+                    }
+                  : {})
+              }
+            };
+            repaired.push(next);
+          }
+        }
+
+        if (repaired.length > 0) await putSegments(repaired);
+
         completedRef += batch.length;
+        const mergedById = new Map(updated.map((s) => [s.id, s] as const));
+        for (const s of repaired) mergedById.set(s.id, s);
+        const merged = Array.from(mergedById.values());
         params.push({
           type: 'REFLECTION_UPDATE',
           videoId,
@@ -285,8 +407,8 @@ export function startIncrementalAnalysis(params: {
           completed: completedRef,
           total: totalRef,
           segments:
-            updated.length > 0
-              ? updated.map((s) => ({
+            merged.length > 0
+              ? merged.map((s) => ({
                   id: s.id,
                   startTime: s.startTime,
                   endTime: s.endTime,

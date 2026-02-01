@@ -29,6 +29,11 @@ export interface OpenAIReflectionItem {
   evidenceIndexes: number[]; // 1-based indices into provided evidence lines
 }
 
+export interface OpenAIRepairItem extends OpenAIReflectionItem {
+  suggestedStartTime: number; // absolute seconds
+  suggestedEndTime: number; // absolute seconds
+}
+
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '');
 }
@@ -267,7 +272,7 @@ ${candidatesText}
   };
 }
 
-export async function reflectSegmentsWithOpenAI(params: {
+export async function verifySegmentsWithOpenAI(params: {
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -355,6 +360,115 @@ ${segText}
       }))
       .filter(
         (x: OpenAIReflectionItem) => x.id.length > 0 && x.reason.length > 0 && Number.isFinite(x.alignmentScore)
+      )
+  };
+}
+
+export async function repairSegmentsWithOpenAI(params: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  title: string;
+  segments: Array<{
+    id: string;
+    startTime: number;
+    endTime: number;
+    summary: string;
+    evidence: string[];
+    windowStartTime: number;
+    windowEndTime: number;
+  }>;
+  signal?: AbortSignal;
+}): Promise<{ items: OpenAIRepairItem[] }> {
+  const baseUrl = normalizeBaseUrl(params.baseUrl);
+  const url = `${baseUrl}/chat/completions`;
+
+  const system = `
+你是一个严格的“字幕证据对齐校验 + 自动对齐修正”审计器（Reflection Gate Repair）。
+目标：在更大时间窗的字幕证据里，重新判断 summary 是否成立，并给出建议的时间范围。
+要求：
+1) 输出必须是严格 JSON（不要 Markdown）。
+2) verdict 仅允许 pass/weak/fail。
+3) alignmentScore 为 0~1。
+4) reason 必须中文，<= 30 字。
+5) evidenceIndexes 必须是【输入字幕证据】的行号（1-based），最多 1~3 个；不得输出证据文本。
+6) suggestedStartTime/suggestedEndTime 必须是【视频开头起的绝对秒数】：
+   - 必须落在 windowStartTime~windowEndTime 范围内
+   - endTime > startTime
+   - 尽量覆盖证据里支持 summary 的关键一句
+`;
+
+  const segText = params.segments
+    .slice(0, 8)
+    .map((s, i) => {
+      const evidence = (s.evidence ?? [])
+        .slice(0, 20)
+        .map((line, idx) => `${idx + 1}) ${line}`)
+        .join('\n');
+      return `${i + 1}. id=${s.id}\noriginalStart=${s.startTime}\noriginalEnd=${s.endTime}\nwindowStartTime=${s.windowStartTime}\nwindowEndTime=${s.windowEndTime}\nsummary=${s.summary}\n字幕证据(编号):\n${evidence}`;
+    })
+    .join('\n\n');
+
+  const user = `
+视频: ${params.title}
+
+请输出 JSON：
+{
+  "items": [
+    {"id":"...", "verdict":"pass", "alignmentScore": 0.9, "reason":"...", "evidenceIndexes":[1,3], "suggestedStartTime": 0, "suggestedEndTime": 10}
+  ]
+}
+
+片段列表：
+${segText}
+`;
+
+  const bodyWithFormat = {
+    model: params.model,
+    temperature: 0.2,
+    messages: [
+      { role: 'system', content: system.trim() },
+      { role: 'user', content: user.trim() }
+    ],
+    response_format: { type: 'json_object' as const }
+  };
+
+  type ChatResp = { choices?: Array<{ message?: { content?: string } }> };
+
+  let resp: ChatResp;
+  try {
+    resp = await postJson<ChatResp>(url, params.apiKey, bodyWithFormat, params.signal);
+  } catch {
+    const bodyNoFormat = { ...bodyWithFormat };
+    delete (bodyNoFormat as any).response_format;
+    resp = await postJson<ChatResp>(url, params.apiKey, bodyNoFormat, params.signal);
+  }
+
+  const content = resp?.choices?.[0]?.message?.content ?? '';
+  const data = tryParseJsonObject(content) ?? {};
+  const items = Array.isArray((data as any).items) ? (data as any).items : [];
+
+  return {
+    items: items
+      .map((x: any) => ({
+        id: String(x.id ?? '').trim(),
+        verdict: (String(x.verdict ?? '').trim() as any) || 'weak',
+        alignmentScore: Math.max(0, Math.min(1, Number(x.alignmentScore))),
+        reason: String(x.reason ?? '').trim(),
+        evidenceIndexes: Array.isArray(x.evidenceIndexes)
+          ? x.evidenceIndexes.map((n: any) => Math.floor(Number(n))).filter((n: number) => Number.isFinite(n) && n > 0)
+          : [],
+        suggestedStartTime: Number(x.suggestedStartTime),
+        suggestedEndTime: Number(x.suggestedEndTime)
+      }))
+      .filter(
+        (x: OpenAIRepairItem) =>
+          x.id.length > 0 &&
+          x.reason.length > 0 &&
+          Number.isFinite(x.alignmentScore) &&
+          Number.isFinite(x.suggestedStartTime) &&
+          Number.isFinite(x.suggestedEndTime) &&
+          x.suggestedEndTime > x.suggestedStartTime
       )
   };
 }

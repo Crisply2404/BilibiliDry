@@ -32,6 +32,8 @@ export interface SegmentRecord {
     evidence: string[];
     checkedAt: string;
     modelTag: string;
+    repairedFrom?: { startTime: number; endTime: number };
+    repairedAt?: string;
   };
 }
 

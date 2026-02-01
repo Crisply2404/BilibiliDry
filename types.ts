@@ -24,6 +24,8 @@ export interface Segment {
     evidence: string[];
     checkedAt: string; // ISO
     modelTag: string;
+    repairedFrom?: { startTime: number; endTime: number };
+    repairedAt?: string; // ISO
   };
 }
 

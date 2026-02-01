@@ -123,7 +123,7 @@ const PluginView: React.FC<PluginViewProps> = ({
             </div>
         )}
 
-        {isAnalyzing && (
+        {isAnalyzing && !data && (
             <div className="flex-1 flex flex-col items-center justify-center space-y-4">
                 <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-bilibili-pink"></div>
                 <p className="text-sm text-gray-500 animate-pulse">Agent 协作处理中...</p>
@@ -142,17 +142,33 @@ const PluginView: React.FC<PluginViewProps> = ({
             </div>
         )}
 
-        {data && !isAnalyzing && (
+        {data && (
             <div className="space-y-6">
+                {isAnalyzing && (
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-semibold text-blue-700">正在重新分析（仍显示当前结果）</div>
+                      {typeof safeProgress === 'number' ? (
+                        <div className="text-[11px] text-blue-700 font-mono">{Math.round(safeProgress * 100)}%</div>
+                      ) : null}
+                    </div>
+                    {typeof safeProgress === 'number' ? (
+                      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-blue-100">
+                        <div className="h-full bg-bilibili-blue transition-all" style={{ width: `${Math.round(safeProgress * 100)}%` }} />
+                      </div>
+                    ) : null}
+                  </div>
+                )}
                 {/* Stats Card */}
                 <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
                     <div className="flex items-start justify-between gap-2 mb-2">
                         <h2 className="text-sm font-bold text-gray-700 line-clamp-1">{data.title}</h2>
                         <button
                             onClick={onAnalyze}
+                            disabled={isAnalyzing}
                             className="shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50"
                         >
-                            重新分析
+                            {isAnalyzing ? '分析中…' : '重新分析'}
                         </button>
                     </div>
                     <div className="flex justify-between items-center text-xs text-gray-500 mb-3">

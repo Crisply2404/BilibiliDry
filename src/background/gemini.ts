@@ -30,6 +30,11 @@ export interface GeminiReflectionItem {
   evidenceIndexes: number[]; // 1-based indices into provided evidence lines
 }
 
+export interface GeminiRepairItem extends GeminiReflectionItem {
+  suggestedStartTime: number;
+  suggestedEndTime: number;
+}
+
 export async function analyzeCaptionChunkWithGemini(params: {
   apiKey: string;
   bvid: string;
@@ -207,7 +212,7 @@ ${candidatesText}
   };
 }
 
-export async function reflectSegmentsWithGemini(params: {
+export async function verifySegmentsWithGemini(params: {
   apiKey: string;
   title: string;
   segments: Array<{ id: string; startTime: number; endTime: number; summary: string; evidence: string[] }>;
@@ -293,5 +298,117 @@ ${segText}
           : []
       }))
       .filter((x: GeminiReflectionItem) => x.id.length > 0 && x.reason.length > 0 && Number.isFinite(x.alignmentScore))
+  };
+}
+
+export async function repairSegmentsWithGemini(params: {
+  apiKey: string;
+  title: string;
+  segments: Array<{
+    id: string;
+    startTime: number;
+    endTime: number;
+    summary: string;
+    evidence: string[];
+    windowStartTime: number;
+    windowEndTime: number;
+  }>;
+  model?: string;
+}): Promise<{ items: GeminiRepairItem[] }> {
+  const ai = new GoogleGenAI({ apiKey: params.apiKey });
+
+  const systemInstruction = `
+你是一个严格的“字幕证据对齐校验 + 自动对齐修正”审计器（Reflection Gate Repair）。
+目标：在更大时间窗的字幕证据里，重新判断 summary 是否成立，并给出建议的时间范围。
+要求：
+1) verdict 仅允许 pass/weak/fail。
+2) alignmentScore 为 0~1。
+3) reason 必须中文，<= 30 字。
+4) evidenceIndexes 必须是【输入字幕证据】的行号（1-based），最多 1~3 个；不得输出证据文本。
+5) suggestedStartTime/suggestedEndTime 必须是【视频开头起的绝对秒数】：
+   - 必须落在 windowStartTime~windowEndTime 范围内
+   - endTime > startTime
+`;
+
+  const segText = params.segments
+    .slice(0, 8)
+    .map((s, i) => {
+      const evidence = (s.evidence ?? [])
+        .slice(0, 20)
+        .map((line, idx) => `${idx + 1}) ${line}`)
+        .join('\n');
+      return `${i + 1}. id=${s.id}\noriginalStart=${s.startTime}\noriginalEnd=${s.endTime}\nwindowStartTime=${s.windowStartTime}\nwindowEndTime=${s.windowEndTime}\nsummary=${s.summary}\n字幕证据(编号):\n${evidence}`;
+    })
+    .join('\n\n');
+
+  const prompt = `
+视频: ${params.title}
+
+请输出 JSON：
+{
+  "items": [
+    {"id":"...", "verdict":"pass", "alignmentScore": 0.9, "reason":"...", "evidenceIndexes":[1,3], "suggestedStartTime": 0, "suggestedEndTime": 10}
+  ]
+}
+
+片段列表：
+${segText}
+`;
+
+  const response = await ai.models.generateContent({
+    model: params.model ?? 'gemini-3-flash-preview',
+    contents: prompt,
+    config: {
+      systemInstruction,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          items: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                verdict: { type: Type.STRING, enum: ['pass', 'weak', 'fail'] },
+                alignmentScore: { type: Type.NUMBER },
+                reason: { type: Type.STRING },
+                evidenceIndexes: { type: Type.ARRAY, items: { type: Type.NUMBER } },
+                suggestedStartTime: { type: Type.NUMBER },
+                suggestedEndTime: { type: Type.NUMBER }
+              },
+              required: ['id', 'verdict', 'alignmentScore', 'reason', 'evidenceIndexes', 'suggestedStartTime', 'suggestedEndTime']
+            }
+          }
+        },
+        required: ['items']
+      }
+    }
+  });
+
+  const data = JSON.parse(response.text || '{}');
+  const items = Array.isArray(data.items) ? data.items : [];
+  return {
+    items: items
+      .map((x: any) => ({
+        id: String(x.id ?? '').trim(),
+        verdict: String(x.verdict ?? 'weak') as any,
+        alignmentScore: Math.max(0, Math.min(1, Number(x.alignmentScore))),
+        reason: String(x.reason ?? '').trim(),
+        evidenceIndexes: Array.isArray(x.evidenceIndexes)
+          ? x.evidenceIndexes.map((n: any) => Math.floor(Number(n))).filter((n: number) => Number.isFinite(n) && n > 0)
+          : [],
+        suggestedStartTime: Number(x.suggestedStartTime),
+        suggestedEndTime: Number(x.suggestedEndTime)
+      }))
+      .filter(
+        (x: GeminiRepairItem) =>
+          x.id.length > 0 &&
+          x.reason.length > 0 &&
+          Number.isFinite(x.alignmentScore) &&
+          Number.isFinite(x.suggestedStartTime) &&
+          Number.isFinite(x.suggestedEndTime) &&
+          x.suggestedEndTime > x.suggestedStartTime
+      )
   };
 }
