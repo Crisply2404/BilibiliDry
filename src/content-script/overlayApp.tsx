@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import HeatmapBar from '../../components/HeatmapBar';
 import PluginView from '../../components/PluginView';
 import type { Segment } from '../../types';
-import { ContentType } from '../../types';
+import { ContentType, type WaterReasonType } from '../../types';
 import type { BackgroundPush } from '../shared/messages';
 import type { CaptionLine, VideoMeta } from '../shared/messages';
 import type { AnalysisResult } from '../../types';
 import { Zap } from 'lucide-react';
+import { getDryPercent } from '../../services/segments';
 
 type SearchResultItem = { startTime: number; endTime: number; score: number; snippet: string; reason?: string };
 type OverlayUiMode = 'open' | 'minimized' | 'closed';
@@ -183,6 +184,7 @@ const OverlayApp: React.FC = () => {
   const [videoId, setVideoId] = useState<string | null>(null);
   const [autoAnalyzeOnOpen, setAutoAnalyzeOnOpen] = useState(false);
   const [autoSkip, setAutoSkip] = useState(false);
+  const [waterEnabledTypes, setWaterEnabledTypes] = useState<WaterReasonType[]>(['REPEAT', 'NO_NEW_INFO', 'AD']);
   const [videoTitle, setVideoTitle] = useState<string>('');
   const [durationSec, setDurationSec] = useState<number>(0);
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -191,6 +193,7 @@ const OverlayApp: React.FC = () => {
   const [progress, setProgress] = useState<number>(0);
   const [error, setError] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState<boolean>(true);
   const [reflection, setReflection] = useState<{ progress: number; completed: number; total: number } | null>(null);
   const pendingSegmentsRef = useRef<Map<string, Segment>>(new Map());
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
@@ -323,39 +326,64 @@ const OverlayApp: React.FC = () => {
     return () => window.clearInterval(id);
   }, []);
 
-  const refreshState = useCallback(async (nextVideoId?: string, opts?: { setSegments?: boolean }) => {
-    const id = nextVideoId ?? videoId ?? bvid;
-    if (!id) return;
-    const resp = await chrome.runtime.sendMessage({ type: 'GET_VIDEO_STATE', videoId: id });
-    if (resp?.ok && resp.data?.video) {
-      setVideoTitle(resp.data.video.title ?? '');
-      setDurationSec(resp.data.video.durationSec ?? 0);
-      setVideoId(resp.data.video.videoId ?? id);
+  const resolveCurrentVideoMeta = useCallback(async (): Promise<VideoMeta | null> => {
+    if (!bvid) return null;
+    const fromState = getVideoMetaFromInitialState(page);
+    if (fromState?.videoId && fromState.bvid === bvid) return fromState;
+    try {
+      return await fetchVideoMetaFromApi(bvid, page);
+    } catch {
+      return null;
     }
-    if (resp?.ok && Array.isArray(resp.data?.segments)) {
-      if (opts?.setSegments === false) return;
-      // Avoid wiping in-memory results while the background is still persisting data.
-      if (resp.data.segments.length > 0 || segmentsRef.current.length === 0) {
-        setSegments(resp.data.segments);
-      }
-    }
-  }, [bvid, videoId]);
-
-  useEffect(() => {
-    refreshState().catch(() => {});
-  }, [refreshState]);
-
-  // Best-effort: when page/bvid changes (分P/切视频)，尽快从页面状态解析出 videoId（bvid+cid）以便加载正确的本地数据。
-  useEffect(() => {
-    if (!bvid) return;
-    const meta = getVideoMetaFromInitialState(page);
-    if (!meta?.videoId) return;
-    setVideoId(meta.videoId);
-    if (meta.title) setVideoTitle(meta.title);
-    if (meta.durationSec && meta.durationSec > 0) setDurationSec(meta.durationSec);
-    refreshState(meta.videoId).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bvid, page]);
+
+  const refreshState = useCallback(async (nextVideoId?: string, opts?: { setSegments?: boolean }) => {
+    let id = nextVideoId ?? videoId ?? bvid;
+    if (!id) {
+      setIsHistoryLoading(false);
+      return;
+    }
+    setIsHistoryLoading(true);
+    try {
+      // Important: DB keys are `${bvid}_${cid}`. If we only have `bvid`,
+      // resolve `cid` first; otherwise refresh may falsely show "暂无记录".
+      if (!String(id).includes('_')) {
+        const meta = await resolveCurrentVideoMeta();
+        if (meta?.videoId) {
+          id = meta.videoId;
+          setVideoId(meta.videoId);
+          if (meta.title) setVideoTitle(meta.title);
+          if (meta.durationSec && Number.isFinite(meta.durationSec) && meta.durationSec > 0) {
+            setDurationSec(meta.durationSec);
+          }
+        }
+      }
+
+      const resp = await chrome.runtime.sendMessage({ type: 'GET_VIDEO_STATE', videoId: id });
+      if (resp?.ok && resp.data?.video) {
+        setVideoTitle(resp.data.video.title ?? '');
+        setDurationSec(resp.data.video.durationSec ?? 0);
+        setVideoId(resp.data.video.videoId ?? id);
+      }
+      if (resp?.ok && Array.isArray(resp.data?.segments)) {
+        if (opts?.setSegments === false) return;
+        // Avoid wiping in-memory results while the background is still persisting data.
+        if (resp.data.segments.length > 0 || segmentsRef.current.length === 0) {
+          setSegments(resp.data.segments);
+        }
+      }
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }, [bvid, videoId, resolveCurrentVideoMeta]);
+
+  useEffect(() => {
+    if (!bvid) {
+      setIsHistoryLoading(false);
+      return;
+    }
+    refreshState(videoId ?? bvid).catch(() => setIsHistoryLoading(false));
+  }, [bvid, page, videoId, refreshState]);
 
   // B站是 SPA 路由：在同一 tab 切换视频时 URL 会变化但 content script 不会重载
   useEffect(() => {
@@ -384,6 +412,7 @@ const OverlayApp: React.FC = () => {
         setSegments([]);
         setPreviousSegments(null);
         setSegmentsView('current');
+        setIsHistoryLoading(true);
         pendingSegmentsRef.current = new Map();
       }
     }, 500);
@@ -411,6 +440,8 @@ const OverlayApp: React.FC = () => {
         if (!resp?.ok) return;
         setAutoAnalyzeOnOpen(Boolean(resp.data?.analysis?.autoAnalyzeOnOpen));
         setAutoSkip(Boolean(resp.data?.analysis?.autoSkip));
+        const enabled = resp.data?.waterFilter?.enabledTypes;
+        if (Array.isArray(enabled) && enabled.length > 0) setWaterEnabledTypes(enabled as WaterReasonType[]);
       })
       .catch(() => {});
   }, []);
@@ -544,12 +575,16 @@ const OverlayApp: React.FC = () => {
       const t = video.currentTime || 0;
       const current = activeSegments.find((s) => t >= s.startTime && t < s.endTime);
       if (!current || current.type !== ContentType.WATER) return;
+      // Conservative default: only auto-skip WATER when we have a reason type and it is enabled.
+      const reasonType = (current as any).waterReasonType as WaterReasonType | undefined;
+      if (!reasonType) return;
+      if (!waterEnabledTypes.includes(reasonType)) return;
       const next = getNextDryStart(activeSegments, t);
       if (next == null) return;
       video.currentTime = next;
     }, 600);
     return () => window.clearInterval(timer);
-  }, [activeSegments, autoSkip]);
+  }, [activeSegments, autoSkip, waterEnabledTypes]);
 
   const seek = useCallback((time: number) => {
     const video = getVideoElement();
@@ -611,10 +646,7 @@ const OverlayApp: React.FC = () => {
 
   const dryPercent = useMemo(() => {
     if (!durationSec || activeSegments.length === 0) return 0;
-    const dry = activeSegments
-      .filter((s) => s.type === ContentType.DRY)
-      .reduce((acc, cur) => acc + Math.max(0, cur.endTime - cur.startTime), 0);
-    return Math.round((dry / durationSec) * 100);
+    return getDryPercent({ segments: activeSegments, totalDurationSec: durationSec });
   }, [activeSegments, durationSec]);
 
   const analysisData: AnalysisResult | null = useMemo(() => {
@@ -705,6 +737,7 @@ const OverlayApp: React.FC = () => {
             }}
             subtitle={subtitle}
             error={error}
+            isHistoryLoading={isHistoryLoading}
             progress={isAnalyzing ? progress : undefined}
             heatmap={
               analysisData

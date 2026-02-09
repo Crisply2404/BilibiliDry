@@ -4,10 +4,12 @@ import HeatmapBar from './HeatmapBar';
 import HeatmapLegend from './HeatmapLegend';
 import VerificationPanel from './VerificationPanel';
 import { ExternalLink, Zap, Activity, Minus, X } from 'lucide-react';
+import { getDryPercent } from '../services/segments';
 
 interface PluginViewProps {
   data: AnalysisResult | null;
   isAnalyzing: boolean;
+  isHistoryLoading?: boolean;
   onOpenDashboard: () => void;
   onAnalyze: () => void;
   onMinimize?: () => void;
@@ -28,6 +30,7 @@ interface PluginViewProps {
 const PluginView: React.FC<PluginViewProps> = ({
   data,
   isAnalyzing,
+  isHistoryLoading,
   onOpenDashboard,
   onAnalyze,
   onMinimize,
@@ -40,9 +43,7 @@ const PluginView: React.FC<PluginViewProps> = ({
   heatmap,
   extra
 }) => {
-  const dryPercent = data 
-    ? Math.round((data.segments.filter(s => s.type === ContentType.DRY).reduce((acc, cur) => acc + (cur.endTime - cur.startTime), 0) / data.totalDuration) * 100)
-    : 0;
+  const dryPercent = data ? getDryPercent({ segments: data.segments, totalDurationSec: data.totalDuration }) : 0;
 
   const formatTime = (seconds: number) => {
     return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
@@ -110,7 +111,14 @@ const PluginView: React.FC<PluginViewProps> = ({
           </div>
         )}
 
-        {!data && !isAnalyzing && (
+        {!data && !isAnalyzing && isHistoryLoading && (
+            <div className="flex-1 flex flex-col items-center justify-center space-y-4 text-center text-gray-500">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-bilibili-blue"></div>
+                <p className="text-sm">正在读取历史记录...</p>
+            </div>
+        )}
+
+        {!data && !isAnalyzing && !isHistoryLoading && (
             <div className="flex-1 flex flex-col items-center justify-center text-center text-gray-500 space-y-4">
                 <Activity size={48} className="text-gray-300" />
                 <p className="text-sm">暂无此视频的分析记录。</p>
