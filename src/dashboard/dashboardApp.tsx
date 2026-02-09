@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DashboardView from '../../components/DashboardView';
-import type { AnalysisResult, Segment } from '../../types';
+import type { AnalysisResult, AnalysisRun, Segment } from '../../types';
 
 type VideoRecord = { videoId: string; title: string; durationSec: number; lastAnalyzedAt?: string };
 
@@ -32,6 +32,7 @@ const DashboardApp: React.FC = () => {
   const [videoId, setVideoId] = useState<string>(() => getVideoId());
   const [video, setVideo] = useState<VideoRecord | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [runs, setRuns] = useState<AnalysisRun[]>([]);
   const [error, setError] = useState<string>('');
   const autoRefreshRef = useRef<{ videoId: string; tries: number; timer: number | null } | null>(null);
 
@@ -46,13 +47,17 @@ const DashboardApp: React.FC = () => {
       setError('缺少 videoId（URL hash）');
       return;
     }
-    const resp = await chrome.runtime.sendMessage({ type: 'GET_VIDEO_STATE', videoId });
-    if (!resp?.ok) {
-      setError(resp?.error ?? '读取失败');
+    const [stateResp, runsResp] = await Promise.all([
+      chrome.runtime.sendMessage({ type: 'GET_VIDEO_STATE', videoId }),
+      chrome.runtime.sendMessage({ type: 'GET_ANALYSIS_RUNS', videoId })
+    ]);
+    if (!stateResp?.ok) {
+      setError(stateResp?.error ?? '读取失败');
       return;
     }
-    setVideo(resp.data?.video ?? null);
-    setSegments(resp.data?.segments ?? []);
+    setVideo(stateResp.data?.video ?? null);
+    setSegments(stateResp.data?.segments ?? []);
+    if (runsResp?.ok) setRuns(Array.isArray(runsResp.data?.runs) ? (runsResp.data.runs as AnalysisRun[]) : []);
     setError('');
   }, [videoId]);
 
@@ -114,7 +119,7 @@ const DashboardApp: React.FC = () => {
     );
   }
 
-  return <DashboardView data={data} onBack={() => window.close()} />;
+  return <DashboardView data={data} runs={runs} onBack={() => window.close()} />;
 };
 
 export default DashboardApp;

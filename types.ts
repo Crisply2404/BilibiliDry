@@ -10,6 +10,8 @@ export enum LogicType {
   CASE = 'CASE'
 }
 
+export type WaterReasonType = 'SMALLTALK' | 'REPEAT' | 'OFFTOPIC' | 'AD' | 'NO_NEW_INFO';
+
 export interface Segment {
   id: string;
   startTime: number; // in seconds
@@ -17,6 +19,8 @@ export interface Segment {
   type: ContentType;
   confidence: number; // 0 to 1
   summary: string;
+  waterReasonType?: WaterReasonType;
+  waterReasonText?: string;
   verification?: {
     verdict: 'pass' | 'weak' | 'fail';
     alignmentScore: number; // 0..1
@@ -27,6 +31,32 @@ export interface Segment {
     repairedFrom?: { startTime: number; endTime: number };
     repairedAt?: string; // ISO
   };
+}
+
+export type LlmStage = 'cheap' | 'strong';
+
+export interface LlmCallMetric {
+  stage: LlmStage;
+  kind: string; // e.g. chunk_analyze / dry_refine / verify / repair
+  modelTag: string;
+  startedAt: string; // ISO
+  latencyMs: number;
+  requestChars: number;
+  responseChars: number;
+  note?: string;
+}
+
+export interface AnalysisRun {
+  runId: string;
+  videoId: string;
+  startedAt: string; // ISO
+  finishedAt?: string; // ISO
+  cascadeEnabled: boolean;
+  provider: 'openai' | 'gemini';
+  cheapModel?: string;
+  strongModel?: string;
+  strongTopK?: number;
+  metrics: LlmCallMetric[];
 }
 
 export interface LogicBlock {

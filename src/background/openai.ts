@@ -1,4 +1,5 @@
 import type { ContentType } from '../../types';
+import type { WaterReasonType } from '../../types';
 
 export interface OpenAISegment {
   startTime: number;
@@ -6,6 +7,8 @@ export interface OpenAISegment {
   type: ContentType;
   confidence: number;
   summary: string;
+  waterReasonType?: WaterReasonType;
+  waterReasonText?: string;
 }
 
 export interface OpenAIChunkResult {
@@ -32,6 +35,17 @@ export interface OpenAIReflectionItem {
 export interface OpenAIRepairItem extends OpenAIReflectionItem {
   suggestedStartTime: number; // absolute seconds
   suggestedEndTime: number; // absolute seconds
+}
+
+export interface OpenAIRefineItem {
+  id: string;
+  summary: string;
+}
+
+function normalizeWaterReasonType(value: unknown): WaterReasonType | undefined {
+  const v = String(value ?? '').trim();
+  if (v === 'SMALLTALK' || v === 'REPEAT' || v === 'OFFTOPIC' || v === 'AD' || v === 'NO_NEW_INFO') return v;
+  return undefined;
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -102,7 +116,11 @@ export async function analyzeCaptionChunkWithOpenAI(params: {
 2) 输出 segments 需要尽量覆盖 chunkStartSec~chunkEndSec。
 3) type 仅允许 DRY/WATER；confidence 为 0~1。
 4) summary 必须中文，尽量短（<= 20 字）。
-5) 输出必须是严格 JSON（不要 Markdown）。
+5) 对于 WATER 段，必须额外输出注水原因分类：
+   - waterReasonType: 仅允许 SMALLTALK/REPEAT/OFFTOPIC/AD/NO_NEW_INFO
+   - waterReasonText: 中文短语（<= 12 字），例如“重复讲概念”“广告口播”“无增量铺垫”
+   对于 DRY 段，不需要输出 waterReason* 字段。
+6) 输出必须是严格 JSON（不要 Markdown）。
 `;
 
   const user = `
@@ -116,7 +134,7 @@ ${params.transcript.slice(0, 12000)}
 {
   "overallSummary": "可选",
   "segments": [
-    {"startTime": 0, "endTime": 10, "type":"WATER", "confidence": 0.2, "summary":"..."}
+    {"startTime": 0, "endTime": 10, "type":"WATER", "confidence": 0.2, "summary":"...", "waterReasonType":"REPEAT", "waterReasonText":"重复讲概念"}
   ]
 }
 `;
@@ -155,7 +173,9 @@ ${params.transcript.slice(0, 12000)}
         endTime: Number(s.endTime),
         type: String(s.type) as ContentType,
         confidence: Math.max(0, Math.min(1, Number(s.confidence))),
-        summary: String(s.summary ?? '').trim()
+        summary: String(s.summary ?? '').trim(),
+        waterReasonType: normalizeWaterReasonType(s.waterReasonType),
+        waterReasonText: typeof s.waterReasonText === 'string' ? String(s.waterReasonText).trim() : undefined
       }))
       .filter((s: OpenAISegment) => Number.isFinite(s.startTime) && Number.isFinite(s.endTime) && s.endTime > s.startTime && s.summary.length > 0)
       .sort((a: OpenAISegment, b: OpenAISegment) => a.startTime - b.startTime)
@@ -496,4 +516,91 @@ export async function testConnectionWithOpenAI(params: {
     },
     params.signal
   );
+}
+
+export async function refineDrySegmentsWithOpenAI(params: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  title: string;
+  segments: Array<{
+    id: string;
+    startTime: number;
+    endTime: number;
+    summary: string;
+    evidence: string[];
+  }>;
+  signal?: AbortSignal;
+}): Promise<{ items: OpenAIRefineItem[] }> {
+  const baseUrl = normalizeBaseUrl(params.baseUrl);
+  const url = `${baseUrl}/chat/completions`;
+
+  const system = `
+你是一个“干货摘要精炼器”（Model Cascade - strong stage）。
+目标：只基于给定字幕证据，把 DRY 段 summary 精炼得更准确、更信息密度高。
+要求：
+1) 输出必须是严格 JSON（不要 Markdown）。
+2) 只能基于字幕证据改写，不得引入证据里不存在的新事实。
+3) summary 必须中文，尽量短（<= 20 字），避免口水话。
+4) 不要输出字幕证据文本。
+`;
+
+  const segText = params.segments
+    .slice(0, 8)
+    .map((s, i) => {
+      const evidence = (s.evidence ?? [])
+        .slice(0, 18)
+        .map((line, idx) => `${idx + 1}) ${line}`)
+        .join('\n');
+      return `${i + 1}. id=${s.id}\nstart=${s.startTime}\nend=${s.endTime}\noldSummary=${s.summary}\n字幕证据(编号):\n${evidence}`;
+    })
+    .join('\n\n');
+
+  const user = `
+视频: ${params.title}
+
+请输出 JSON：
+{
+  "items": [
+    {"id":"...", "summary":"..."}
+  ]
+}
+
+片段列表（均为 DRY）：
+${segText}
+`;
+
+  const bodyWithFormat = {
+    model: params.model,
+    temperature: 0.2,
+    messages: [
+      { role: 'system', content: system.trim() },
+      { role: 'user', content: user.trim() }
+    ],
+    response_format: { type: 'json_object' as const }
+  };
+
+  type ChatResp = { choices?: Array<{ message?: { content?: string } }> };
+
+  let resp: ChatResp;
+  try {
+    resp = await postJson<ChatResp>(url, params.apiKey, bodyWithFormat, params.signal);
+  } catch {
+    const bodyNoFormat = { ...bodyWithFormat };
+    delete (bodyNoFormat as any).response_format;
+    resp = await postJson<ChatResp>(url, params.apiKey, bodyNoFormat, params.signal);
+  }
+
+  const content = resp?.choices?.[0]?.message?.content ?? '';
+  const data = tryParseJsonObject(content) ?? {};
+  const items = Array.isArray((data as any).items) ? (data as any).items : [];
+
+  return {
+    items: items
+      .map((x: any) => ({
+        id: String(x.id ?? '').trim(),
+        summary: String(x.summary ?? '').trim()
+      }))
+      .filter((x: OpenAIRefineItem) => x.id.length > 0 && x.summary.length > 0)
+  };
 }

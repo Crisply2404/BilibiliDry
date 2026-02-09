@@ -17,6 +17,8 @@
   - 本视频搜索：语义重排优先，失败回退关键词（不依赖 embedding）
   - Notion 导出：先做 Markdown 复制/下载（不接入 Notion API）
   - Reflection Gate：分析完成后抽样校验关键干货段（字幕证据对齐），对 weak/fail 自动降置信度并可展开查看证据
+  - Model Cascade（可选）：cheap 模型先粗筛分块，strong 模型仅精炼 TopK 干货摘要，并在 Dashboard 展示耗时/体量对比
+  - 可解释注水：WATER 段输出原因分类与短文案，并支持按类别配置自动跳过（默认保守）
 - **范围外:**
   - 无字幕视频的 OCR（后续可做增量）
   - 托管后端 / 统一推理路由（与“用户只装扩展 + BYOK”冲突）
@@ -44,5 +46,6 @@
 - [架构设计](arch.md)
 - [API 手册](api.md)
 - [数据模型](data.md)
+- [开发历程与踩坑复盘](dev_journey.md)
 - [变更历史](../history/index.md)
 - [资源归档](resources/index.md)

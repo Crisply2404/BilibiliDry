@@ -1,4 +1,5 @@
 import type { ContentType } from '../../types';
+import type { WaterReasonType } from '../../types';
 import type { ExtensionConfig } from '../shared/storage';
 import { analyzeCaptionChunkWithGemini, embedTextWithGemini, repairSegmentsWithGemini, rerankCandidatesWithGemini, verifySegmentsWithGemini } from './gemini';
 import { analyzeCaptionChunkWithOpenAI, embedTextWithOpenAI, repairSegmentsWithOpenAI, rerankCandidatesWithOpenAI, verifySegmentsWithOpenAI } from './openai';
@@ -11,6 +12,8 @@ export interface LlmSegment {
   type: ContentType;
   confidence: number;
   summary: string;
+  waterReasonType?: WaterReasonType;
+  waterReasonText?: string;
 }
 
 export interface LlmChunkResult {

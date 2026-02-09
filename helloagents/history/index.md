@@ -13,6 +13,7 @@
 | 202601282335 | embedding_and_model_strategy | 规划 | [-]暂缓 | `helloagents/history/2026-01/202601282335_embedding_and_model_strategy/` |
 | 202601291851 | in_video_semantic_search | 功能 | ⚠️待验证 | `helloagents/history/2026-01/202601291851_in_video_semantic_search/` |
 | 202601311913 | reflection_gate_v1 | 功能 | ⚠️待验证 | `helloagents/history/2026-01/202601311913_reflection_gate_v1/` |
+| 202602020336 | model_cascade_and_explainable_water | 功能 | ⚠️待验证 | `helloagents/history/2026-02/202602020336_model_cascade_and_explainable_water/` |
 
 ---
 
@@ -25,3 +26,7 @@
 - [202601282335_embedding_and_model_strategy](2026-01/202601282335_embedding_and_model_strategy/) - Embedding 与模型策略（暂缓/归档）
 - [202601291851_in_video_semantic_search](2026-01/202601291851_in_video_semantic_search/) - 本视频语义搜索（无 embedding，待验证）
 - [202601311913_reflection_gate_v1](2026-01/202601311913_reflection_gate_v1/) - Reflection Gate：字幕证据对齐校验（待验证）
+
+### 2026-02
+
+- [202602020336_model_cascade_and_explainable_water](2026-02/202602020336_model_cascade_and_explainable_water/) - Model Cascade（cheap→strong）+ 可解释注水（待验证）

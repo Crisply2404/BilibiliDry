@@ -79,7 +79,11 @@ const HeatmapBar: React.FC<HeatmapBarProps> = ({
                 backgroundColor: segment.type === ContentType.DRY ? undefined : '#e5e7eb', // Tailwind gray-200
                 background: segment.type === ContentType.DRY ? bgColor : undefined
               }}
-              title={`${segment.type === ContentType.DRY ? '干货' : '注水'}: ${segment.summary}`}
+              title={
+                segment.type === ContentType.DRY
+                  ? `干货: ${segment.summary}`
+                  : `注水${segment.waterReasonType ? `（${segment.waterReasonType}）` : ''}: ${segment.waterReasonText || segment.summary}`
+              }
             />
           );
         })}

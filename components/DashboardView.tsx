@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AnalysisResult, Segment, LogicBlock } from '../types';
+import { AnalysisResult, AnalysisRun, Segment, LogicBlock } from '../types';
 import HeatmapBar from './HeatmapBar';
 import LogicBlocks from './LogicBlocks';
 import VerificationPanel from './VerificationPanel';
@@ -8,13 +8,24 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'rec
 
 interface DashboardViewProps {
   data: AnalysisResult;
+  runs?: AnalysisRun[];
   onBack: () => void;
 }
 
-const DashboardView: React.FC<DashboardViewProps> = ({ data, onBack }) => {
+const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, onBack }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [activeSegment, setActiveSegment] = useState<Segment | null>(null);
+
+  const latestRun = Array.isArray(runs) && runs.length > 0 ? runs[0] : null;
+  const summarizeStage = (stage: 'cheap' | 'strong') => {
+    const list = (latestRun?.metrics ?? []).filter((m) => m.stage === stage);
+    const calls = list.length;
+    const totalMs = list.reduce((acc, cur) => acc + (Number(cur.latencyMs) || 0), 0);
+    const reqChars = list.reduce((acc, cur) => acc + (Number(cur.requestChars) || 0), 0);
+    const respChars = list.reduce((acc, cur) => acc + (Number(cur.responseChars) || 0), 0);
+    return { calls, totalMs, reqChars, respChars };
+  };
 
   // Simulate Video Playback
   useEffect(() => {
@@ -152,6 +163,34 @@ const DashboardView: React.FC<DashboardViewProps> = ({ data, onBack }) => {
                     </AreaChart>
                 </ResponsiveContainer>
             </div>
+
+            {latestRun && (
+              <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs text-gray-700">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold">Model Cascade 指标</div>
+                  <div className="font-mono text-[11px] text-gray-500">
+                    {new Date(latestRun.startedAt).toLocaleString()}
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div className="rounded-md bg-white p-2 border border-gray-100">
+                    <div className="font-semibold text-gray-800">cheap</div>
+                    <div className="mt-1 font-mono text-[11px] text-gray-600">
+                      calls={summarizeStage('cheap').calls} ms={summarizeStage('cheap').totalMs} req={summarizeStage('cheap').reqChars} resp={summarizeStage('cheap').respChars}
+                    </div>
+                    {latestRun.cheapModel ? <div className="mt-1 text-[11px] text-gray-500">model: {latestRun.cheapModel}</div> : null}
+                  </div>
+                  <div className="rounded-md bg-white p-2 border border-gray-100">
+                    <div className="font-semibold text-gray-800">strong</div>
+                    <div className="mt-1 font-mono text-[11px] text-gray-600">
+                      calls={summarizeStage('strong').calls} ms={summarizeStage('strong').totalMs} req={summarizeStage('strong').reqChars} resp={summarizeStage('strong').respChars}
+                    </div>
+                    {latestRun.strongModel ? <div className="mt-1 text-[11px] text-gray-500">model: {latestRun.strongModel}</div> : null}
+                  </div>
+                </div>
+                <div className="mt-2 text-[10px] text-gray-500">注：此处用字符数/耗时做对比（不是精确 token 计费）。</div>
+              </div>
+            )}
             <div className="mt-4">
               <VerificationPanel segments={data.segments} maxItems={6} title="关键干货校验（字幕证据）" onSeek={handleSeek} />
             </div>

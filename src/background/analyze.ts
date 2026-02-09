@@ -1,9 +1,11 @@
 import { ContentType } from '../../types';
 import { fetchSubtitleLines, fetchVideoView, SubtitleLoginRequiredError } from './bilibili';
-import { listSegments, putSegments, upsertVideo, type SegmentRecord } from './db';
+import { listSegments, putAnalysisRun, putSegments, upsertVideo, type AnalysisRunRecord, type SegmentRecord } from './db';
 import { getConfig } from '../shared/storage';
 import { getActiveLlm } from './llm';
+import { refineDrySegmentsWithOpenAI } from './openai';
 import type { CaptionLine, VideoMeta } from '../shared/messages';
+import type { AnalysisRun, LlmCallMetric, LlmStage } from '../../types';
 
 function toId(videoId: string, startTime: number, endTime: number): string {
   const s = startTime.toFixed(3);
@@ -110,86 +112,199 @@ export function startIncrementalAnalysis(params: {
 
   const done = (async () => {
     const config = await getConfig();
-    const llm = getActiveLlm(config);
+    const baseLlm = getActiveLlm(config);
+
+    const cascadeEnabled = baseLlm.source === 'openai' && Boolean(config.cascade?.enabled);
+    const cheapModel = cascadeEnabled ? String(config.cascade?.cheapModel ?? '').trim() : '';
+    const strongModel = cascadeEnabled ? String(config.cascade?.strongModel ?? '').trim() : '';
+    const strongTopK = cascadeEnabled ? clamp(Number(config.cascade?.strongTopK ?? 6), 1, 8) : 0;
+
+    const llmCheap = cascadeEnabled && cheapModel ? getActiveLlm({ ...config, openaiModel: cheapModel }) : baseLlm;
+    const llmStrong = cascadeEnabled && strongModel ? getActiveLlm({ ...config, openaiModel: strongModel }) : baseLlm;
 
     const view = params.video ?? (await fetchVideoView(params.bvid));
     const videoId = params.videoId || params.video?.videoId || `${view.bvid}_${view.cid}`;
     const bvid = view.bvid;
 
-    let lines: Awaited<ReturnType<typeof fetchSubtitleLines>>;
-    try {
-      lines = params.captions ?? (await fetchSubtitleLines(view.aid, view.cid));
-    } catch (err) {
-      if (err instanceof SubtitleLoginRequiredError) throw err;
-      throw err;
-    }
-    const hasCC = lines.length > 0;
-    await upsertVideo({
+    const runId =
+      typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function'
+        ? (crypto as any).randomUUID()
+        : `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+    const run: AnalysisRunRecord = {
+      runId,
       videoId,
-      bvid,
-      aid: view.aid,
-      cid: view.cid,
-      page: params.video?.page,
-      partTitle: params.video?.partTitle,
-      title: view.title,
-      durationSec: view.durationSec,
-      hasCC,
-      lastAnalyzedAt: new Date().toISOString(),
-      analysisVersion: 'v1'
-    });
+      startedAt: new Date().toISOString(),
+      cascadeEnabled,
+      provider: baseLlm.source,
+      ...(cascadeEnabled
+        ? {
+            cheapModel: cheapModel || undefined,
+            strongModel: strongModel || undefined,
+            strongTopK
+          }
+        : {}),
+      metrics: []
+    } satisfies AnalysisRun;
 
-    if (!hasCC) {
-      params.push({ type: 'ANALYSIS_ERROR', videoId, error: '该视频无可用 CC/字幕' });
-      return;
-    }
+    const recordMetric = async (metric: LlmCallMetric) => {
+      run.metrics.push(metric);
+      await putAnalysisRun(run);
+    };
 
-    const chunkSec = clamp(Number(config.analysis.chunkSec) || 90, 30, 300);
-    const existing = await listSegments(videoId);
-    const doneChunkIndexes = new Set<number>(
-      existing.filter((s) => s.source === llm.source).map((s) => Math.floor(s.startTime / chunkSec))
-    );
-    const chunksMap = new Map<number, typeof lines>();
-    for (const line of lines) {
-      const idx = Math.floor(line.from / chunkSec);
-      const list = chunksMap.get(idx) ?? [];
-      list.push(line);
-      chunksMap.set(idx, list);
-    }
-    const chunkIndexes = Array.from(chunksMap.keys()).sort((a, b) => a - b);
-    if (chunkIndexes.length === 0) {
-      params.push({ type: 'ANALYSIS_ERROR', videoId, error: '字幕解析为空' });
-      return;
-    }
-
-    const currentIdx =
-      typeof params.currentTimeSec === 'number' && Number.isFinite(params.currentTimeSec)
-        ? Math.floor(params.currentTimeSec / chunkSec)
-        : chunkIndexes[0];
-    const ordered = [...chunkIndexes.filter((i) => i >= currentIdx), ...chunkIndexes.filter((i) => i < currentIdx)];
-
-    const total = ordered.length;
-    let completed = 0;
-
-    for (const idx of ordered) {
-      if (controller.signal.aborted) return;
-      if (doneChunkIndexes.has(idx)) {
-        completed += 1;
-        params.push({ type: 'ANALYSIS_UPDATE', videoId, progress: completed / total });
-        continue;
+    const timed = async <T>(args: {
+      stage: LlmStage;
+      kind: string;
+      modelTag: string;
+      requestText: string;
+      fn: () => Promise<T>;
+    }): Promise<T> => {
+      const startedAt = new Date().toISOString();
+      const startedAtMs = Date.now();
+      try {
+        const out = await args.fn();
+        const respText = (() => {
+          try {
+            return JSON.stringify(out);
+          } catch {
+            return '';
+          }
+        })();
+        await recordMetric({
+          stage: args.stage,
+          kind: args.kind,
+          modelTag: args.modelTag,
+          startedAt,
+          latencyMs: Math.max(0, Date.now() - startedAtMs),
+          requestChars: args.requestText.length,
+          responseChars: respText.length
+        });
+        return out;
+      } catch (err: any) {
+        await recordMetric({
+          stage: args.stage,
+          kind: `${args.kind}_error`,
+          modelTag: args.modelTag,
+          startedAt,
+          latencyMs: Math.max(0, Date.now() - startedAtMs),
+          requestChars: args.requestText.length,
+          responseChars: 0,
+          note: redactSecrets(String(err?.message ?? err)).slice(0, 160)
+        });
+        throw err;
       }
+    };
+
+    try {
+      let lines: Awaited<ReturnType<typeof fetchSubtitleLines>>;
+      try {
+        lines = params.captions ?? (await fetchSubtitleLines(view.aid, view.cid));
+      } catch (err) {
+        if (err instanceof SubtitleLoginRequiredError) throw err;
+        throw err;
+      }
+      const hasCC = lines.length > 0;
+      await upsertVideo({
+        videoId,
+        bvid,
+        aid: view.aid,
+        cid: view.cid,
+        page: params.video?.page,
+        partTitle: params.video?.partTitle,
+        title: view.title,
+        durationSec: view.durationSec,
+        hasCC,
+        lastAnalyzedAt: new Date().toISOString(),
+        analysisVersion: 'v2'
+      });
+
+      if (!hasCC) {
+        params.push({ type: 'ANALYSIS_ERROR', videoId, error: '该视频无可用 CC/字幕' });
+        return;
+      }
+
+      const chunkSec = clamp(Number(config.analysis.chunkSec) || 90, 30, 300);
+      const existing = await listSegments(videoId);
+      const doneChunkIndexes = new Set<number>(
+        existing.filter((s) => s.source === llmCheap.source).map((s) => Math.floor(s.startTime / chunkSec))
+      );
+      const existingByChunk = new Map<number, SegmentRecord[]>();
+      for (const seg of existing) {
+        if (seg.source !== llmCheap.source) continue;
+        const idx = Math.floor(seg.startTime / chunkSec);
+        const list = existingByChunk.get(idx) ?? [];
+        list.push(seg);
+        existingByChunk.set(idx, list);
+      }
+      const chunksMap = new Map<number, typeof lines>();
+      for (const line of lines) {
+        const idx = Math.floor(line.from / chunkSec);
+        const list = chunksMap.get(idx) ?? [];
+        list.push(line);
+        chunksMap.set(idx, list);
+      }
+      const chunkIndexes = Array.from(chunksMap.keys()).sort((a, b) => a - b);
+      if (chunkIndexes.length === 0) {
+        params.push({ type: 'ANALYSIS_ERROR', videoId, error: '字幕解析为空' });
+        return;
+      }
+
+      const currentIdx =
+        typeof params.currentTimeSec === 'number' && Number.isFinite(params.currentTimeSec)
+          ? Math.floor(params.currentTimeSec / chunkSec)
+          : chunkIndexes[0];
+      const ordered = [...chunkIndexes.filter((i) => i >= currentIdx), ...chunkIndexes.filter((i) => i < currentIdx)];
+
+      const total = ordered.length;
+      let completed = 0;
+      const totalSteps = total + (cascadeEnabled ? 1 : 0);
+
+      await putAnalysisRun(run);
+
+      for (const idx of ordered) {
+        if (controller.signal.aborted) return;
+        if (doneChunkIndexes.has(idx)) {
+          completed += 1;
+          const segs = (existingByChunk.get(idx) ?? []).map((s) => ({
+            id: s.id,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            type: s.type,
+            confidence: s.confidence,
+            summary: s.summary,
+            waterReasonType: s.waterReasonType,
+            waterReasonText: s.waterReasonText,
+            verification: s.verification
+          }));
+          params.push({
+            type: 'ANALYSIS_UPDATE',
+            videoId,
+            progress: clamp(completed / totalSteps, 0, 1),
+            ...(segs.length > 0 ? { segments: segs } : {})
+          });
+          continue;
+        }
 
       const chunkLines = (chunksMap.get(idx) ?? []).sort((a, b) => a.from - b.from);
       const chunkStartSec = idx * chunkSec;
       const chunkEndSec = Math.min(view.durationSec, (idx + 1) * chunkSec);
       const transcript = buildTranscript(chunkLines);
 
-      const chunkResult = await llm.analyzeChunk({
-        bvid,
-        title: view.title,
-        chunkStartSec,
-        chunkEndSec,
-        transcript,
-        signal: controller.signal
+      const chunkStage: LlmStage = cascadeEnabled ? 'cheap' : 'strong';
+      const chunkResult = await timed({
+        stage: chunkStage,
+        kind: 'chunk_analyze',
+        modelTag: llmCheap.modelTag,
+        requestText: transcript,
+        fn: () =>
+          llmCheap.analyzeChunk({
+            bvid,
+            title: view.title,
+            chunkStartSec,
+            chunkEndSec,
+            transcript,
+            signal: controller.signal
+          })
       });
 
       const segs: SegmentRecord[] = chunkResult.segments.map((s) => {
@@ -203,29 +318,113 @@ export function startIncrementalAnalysis(params: {
           type: s.type as ContentType,
           confidence: clamp(Number(s.confidence), 0, 1),
           summary: s.summary,
-          source: llm.source
+          waterReasonType: s.waterReasonType,
+          waterReasonText: s.waterReasonText,
+          source: llmCheap.source
         };
       });
 
       await putSegments(segs);
 
-      completed += 1;
-      params.push({
-        type: 'ANALYSIS_UPDATE',
-        videoId,
-        progress: completed / total,
-        segments: segs.map((s) => ({
-          id: s.id,
-          startTime: s.startTime,
-          endTime: s.endTime,
-          type: s.type,
-          confidence: s.confidence,
-          summary: s.summary
-        }))
-      });
-    }
+        completed += 1;
+        params.push({
+          type: 'ANALYSIS_UPDATE',
+          videoId,
+          progress: clamp(completed / totalSteps, 0, 1),
+          segments: segs.map((s) => ({
+            id: s.id,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            type: s.type,
+            confidence: s.confidence,
+            summary: s.summary,
+            waterReasonType: s.waterReasonType,
+            waterReasonText: s.waterReasonText
+          }))
+        });
+      }
 
-    params.push({ type: 'ANALYSIS_DONE', videoId });
+      // Model Cascade (strong stage): refine TopK DRY summaries before we announce ANALYSIS_DONE,
+      // so progress=100% matches what users see.
+      if (cascadeEnabled && baseLlm.source === 'openai') {
+        try {
+          if (controller.signal.aborted) return;
+          const baseUrl = String(config.openaiBaseUrl ?? '').trim();
+          const apiKey = String(config.openaiApiKey ?? '').trim();
+          const model = (strongModel || String(config.openaiModel ?? '').trim()).trim();
+          if (baseUrl && apiKey && model) {
+            const all = await listSegments(videoId);
+            const candidates = all
+              .filter((s) => s.source === llmCheap.source && s.type === ContentType.DRY)
+              .sort((a, b) => b.confidence - a.confidence)
+              .slice(0, strongTopK);
+
+            if (candidates.length > 0) {
+              const input = candidates.map((s) => ({
+                id: s.id,
+                startTime: s.startTime,
+                endTime: s.endTime,
+                summary: s.summary,
+                evidence: buildEvidenceLines({
+                  lines,
+                  startTime: s.startTime,
+                  endTime: s.endTime,
+                  padSec: 10,
+                  maxLines: 24,
+                  maxChars: 1400,
+                  perLineMaxChars: 100
+                })
+              }));
+
+              const refineResp = await timed({
+                stage: 'strong',
+                kind: 'dry_refine',
+                modelTag: llmStrong.modelTag,
+                requestText: JSON.stringify(input),
+                fn: () =>
+                  refineDrySegmentsWithOpenAI({
+                    baseUrl,
+                    apiKey,
+                    model,
+                    title: view.title,
+                    segments: input,
+                    signal: controller.signal
+                  })
+              });
+
+              const byId = new Map(refineResp.items.map((x) => [x.id, x.summary] as const));
+              const updated: SegmentRecord[] = [];
+              for (const seg of candidates) {
+                const nextSummary = byId.get(seg.id);
+                if (!nextSummary || nextSummary === seg.summary) continue;
+                updated.push({ ...seg, summary: nextSummary });
+              }
+              if (updated.length > 0) {
+                await putSegments(updated);
+                params.push({
+                  type: 'ANALYSIS_UPDATE',
+                  videoId,
+                  progress: 1,
+                  segments: updated.map((s) => ({
+                    id: s.id,
+                    startTime: s.startTime,
+                    endTime: s.endTime,
+                    type: s.type,
+                    confidence: s.confidence,
+                    summary: s.summary,
+                    waterReasonType: s.waterReasonType,
+                    waterReasonText: s.waterReasonText
+                  }))
+                });
+              }
+            }
+          }
+        } catch {
+          // best-effort: refine stage should never block the main result
+        }
+      }
+
+      params.push({ type: 'ANALYSIS_DONE', videoId });
 
     // Reflection Gate (post-check): do NOT block showing results, but still run in this job
     // so cancellation works and we can push incremental verification updates.
@@ -233,7 +432,7 @@ export function startIncrementalAnalysis(params: {
       if (controller.signal.aborted) return;
       const all = await listSegments(videoId);
       const candidates = all
-        .filter((s) => s.source === llm.source && s.type === ContentType.DRY)
+        .filter((s) => s.source === baseLlm.source && s.type === ContentType.DRY)
         .sort((a, b) => b.confidence - a.confidence)
         .slice(0, 6);
       if (candidates.length === 0) return;
@@ -274,7 +473,14 @@ export function startIncrementalAnalysis(params: {
           return picked.length > 0 ? picked : originalEvidence.slice(0, 3);
         };
 
-        const verifyResp = await llm.verifySegments({ title: view.title, segments: verifyInput, signal: controller.signal });
+        const reflectionLlm = cascadeEnabled ? llmStrong : baseLlm;
+        const verifyResp = await timed({
+          stage: 'strong',
+          kind: 'verify',
+          modelTag: reflectionLlm.modelTag,
+          requestText: JSON.stringify(verifyInput),
+          fn: () => reflectionLlm.verifySegments({ title: view.title, segments: verifyInput, signal: controller.signal })
+        });
         const verifyById = new Map(verifyResp.items.map((x) => [x.id, x] as const));
         const verifyEvidenceById = new Map(verifyInput.map((x) => [x.id, x.evidence] as const));
 
@@ -300,7 +506,7 @@ export function startIncrementalAnalysis(params: {
               reason: reason.length > 40 ? `${reason.slice(0, 40)}…` : reason,
               evidence,
               checkedAt: new Date().toISOString(),
-              modelTag: llm.modelTag
+              modelTag: reflectionLlm.modelTag
             }
           };
           updated.push(next);
@@ -336,7 +542,13 @@ export function startIncrementalAnalysis(params: {
             };
           });
 
-          const repairResp = await llm.repairSegments({ title: view.title, segments: repairInput, signal: controller.signal });
+          const repairResp = await timed({
+            stage: 'strong',
+            kind: 'repair',
+            modelTag: reflectionLlm.modelTag,
+            requestText: JSON.stringify(repairInput),
+            fn: () => reflectionLlm.repairSegments({ title: view.title, segments: repairInput, signal: controller.signal })
+          });
           const repairById = new Map(repairResp.items.map((x) => [x.id, x] as const));
           const repairEvidenceById = new Map(repairInput.map((x) => [x.id, x.evidence] as const));
           const windowById = new Map(repairInput.map((x) => [x.id, { windowStartTime: x.windowStartTime, windowEndTime: x.windowEndTime }] as const));
@@ -381,7 +593,7 @@ export function startIncrementalAnalysis(params: {
                 reason: reason.length > 40 ? `${reason.slice(0, 40)}…` : reason,
                 evidence,
                 checkedAt: new Date().toISOString(),
-                modelTag: llm.modelTag,
+                modelTag: reflectionLlm.modelTag,
                 ...(canApplyRepair
                   ? {
                       repairedFrom: { startTime: seg.startTime, endTime: seg.endTime },
@@ -422,6 +634,10 @@ export function startIncrementalAnalysis(params: {
       }
     } catch {
       // Reflection is best-effort; never fail the main analysis.
+    }
+    } finally {
+      run.finishedAt = new Date().toISOString();
+      await putAnalysisRun(run).catch(() => {});
     }
   })().catch((err: any) => {
     const videoId = params.videoId || params.bvid;

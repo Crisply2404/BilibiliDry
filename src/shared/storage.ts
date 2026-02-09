@@ -1,3 +1,5 @@
+import type { WaterReasonType } from '../../types';
+
 export interface ExtensionConfig {
   llmProvider: 'gemini' | 'openai';
 
@@ -22,6 +24,17 @@ export interface ExtensionConfig {
     autoAnalyzeOnOpen: boolean;
     autoSkip: boolean;
   };
+
+  cascade?: {
+    enabled: boolean;
+    cheapModel?: string;
+    strongModel?: string;
+    strongTopK: number;
+  };
+
+  waterFilter?: {
+    enabledTypes: WaterReasonType[];
+  };
 }
 
 const DEFAULT_CONFIG: ExtensionConfig = {
@@ -34,6 +47,13 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     concurrency: 1,
     autoAnalyzeOnOpen: false,
     autoSkip: false
+  },
+  cascade: {
+    enabled: false,
+    strongTopK: 6
+  },
+  waterFilter: {
+    enabledTypes: ['REPEAT', 'NO_NEW_INFO', 'AD']
   }
 };
 
@@ -43,6 +63,13 @@ function envString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const v = value.trim();
   return v.length > 0 ? v : undefined;
+}
+
+function envNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return undefined;
+  const n = Number(value.trim());
+  return Number.isFinite(n) ? n : undefined;
 }
 
 function getEnvDefaults(): Partial<ExtensionConfig> {
@@ -57,6 +84,17 @@ function getEnvDefaults(): Partial<ExtensionConfig> {
   const openaiApiKey = envString(env.VITE_OPENAI_API_KEY);
   const openaiModel = envString(env.VITE_OPENAI_MODEL);
   const openaiEmbeddingModel = envString(env.VITE_OPENAI_EMBEDDING_MODEL);
+  const envCheapModel =
+    envString(env.VITE_OPENAI_CHEAP_MODEL) ??
+    envString(env.VITE_OPENAI_CHEAPMODEL) ??
+    envString(env.VITE_CHEAP_MODEL) ??
+    envString(env.VITE_CHEAPMODEL);
+  const envStrongModel =
+    envString(env.VITE_OPENAI_STRONG_MODEL) ?? envString(env.VITE_STRONG_MODEL) ?? openaiModel;
+  const envCascadeTopKRaw = envNumber(env.VITE_OPENAI_CASCADE_TOPK) ?? envNumber(env.VITE_CASCADE_TOPK);
+  const envCascadeTopK = Number.isFinite(envCascadeTopKRaw)
+    ? Math.max(1, Math.min(8, Math.floor(Number(envCascadeTopKRaw))))
+    : undefined;
 
   const qiniuAccessKey = envString(env.VITE_QINIU_ACCESS_KEY);
   const qiniuSecretKey = envString(env.VITE_QINIU_SECRET_KEY);
@@ -69,7 +107,7 @@ function getEnvDefaults(): Partial<ExtensionConfig> {
   } else {
     // DX: if user only sets OpenAI env vars, auto switch provider to OpenAI-compatible.
     // Stored config (settings page) still takes precedence over env defaults.
-    if (openaiApiKey || openaiBaseUrl) defaults.llmProvider = 'openai';
+    if (openaiApiKey || openaiBaseUrl || openaiModel || envCheapModel || envStrongModel) defaults.llmProvider = 'openai';
     else if (geminiApiKey) defaults.llmProvider = 'gemini';
   }
   if (geminiApiKey) defaults.geminiApiKey = geminiApiKey;
@@ -78,6 +116,17 @@ function getEnvDefaults(): Partial<ExtensionConfig> {
   if (openaiApiKey) defaults.openaiApiKey = openaiApiKey;
   if (openaiModel) defaults.openaiModel = openaiModel;
   if (openaiEmbeddingModel) defaults.openaiEmbeddingModel = openaiEmbeddingModel;
+
+  // Env-driven cascade (only when both models can be resolved):
+  // cheap model from VITE_OPENAI_CHEAP_MODEL, strong model from VITE_OPENAI_MODEL or VITE_OPENAI_STRONG_MODEL.
+  if (envCheapModel && envStrongModel) {
+    defaults.cascade = {
+      enabled: true,
+      cheapModel: envCheapModel,
+      strongModel: envStrongModel,
+      strongTopK: envCascadeTopK ?? DEFAULT_CONFIG.cascade!.strongTopK
+    };
+  }
 
   if (qiniuAccessKey) defaults.qiniuAccessKey = qiniuAccessKey;
   if (qiniuSecretKey) defaults.qiniuSecretKey = qiniuSecretKey;
@@ -90,6 +139,13 @@ function getEnvDefaults(): Partial<ExtensionConfig> {
 export async function getConfig(): Promise<ExtensionConfig> {
   const { [STORAGE_KEY]: config } = await chrome.storage.local.get(STORAGE_KEY);
   const envDefaults = getEnvDefaults();
+  const envCascadeForced =
+    envDefaults.cascade?.enabled === true &&
+    typeof envDefaults.cascade.cheapModel === 'string' &&
+    envDefaults.cascade.cheapModel.trim().length > 0 &&
+    typeof envDefaults.cascade.strongModel === 'string' &&
+    envDefaults.cascade.strongModel.trim().length > 0;
+
   const merged: ExtensionConfig = {
     ...DEFAULT_CONFIG,
     ...envDefaults,
@@ -97,11 +153,35 @@ export async function getConfig(): Promise<ExtensionConfig> {
     analysis: {
       ...DEFAULT_CONFIG.analysis,
       ...(config?.analysis ?? {})
+    },
+    cascade: {
+      ...DEFAULT_CONFIG.cascade,
+      ...(config?.cascade ?? {})
+    },
+    waterFilter: {
+      ...DEFAULT_CONFIG.waterFilter,
+      ...(config?.waterFilter ?? {})
     }
   };
 
   // Backward compatibility: older config had only geminiApiKey.
   if (!merged.llmProvider) merged.llmProvider = 'gemini';
+  if (!merged.cascade) merged.cascade = { ...DEFAULT_CONFIG.cascade };
+  if (!merged.waterFilter) merged.waterFilter = { ...DEFAULT_CONFIG.waterFilter };
+
+  // When env explicitly provides cheap+strong models, force cascade on this runtime config.
+  // This lets local `.env.local` become a one-stop switch for development.
+  if (envCascadeForced && envDefaults.cascade) {
+    merged.llmProvider = 'openai';
+    merged.cascade = {
+      ...merged.cascade,
+      ...envDefaults.cascade,
+      enabled: true
+    };
+    if (typeof envDefaults.cascade.strongModel === 'string' && envDefaults.cascade.strongModel.trim()) {
+      merged.openaiModel = envDefaults.cascade.strongModel;
+    }
+  }
 
   return merged;
 }
@@ -114,6 +194,14 @@ export async function setConfig(partial: Partial<ExtensionConfig>): Promise<void
     analysis: {
       ...current.analysis,
       ...(partial.analysis ?? {})
+    },
+    cascade: {
+      ...current.cascade,
+      ...(partial.cascade ?? {})
+    },
+    waterFilter: {
+      ...current.waterFilter,
+      ...(partial.waterFilter ?? {})
     }
   };
   await chrome.storage.local.set({ [STORAGE_KEY]: next });

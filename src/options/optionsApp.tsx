@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { getConfig, setConfig } from '../shared/storage';
+import type { WaterReasonType } from '../../types';
 
 const OptionsApp: React.FC = () => {
   const [llmProvider, setLlmProvider] = useState<'gemini' | 'openai'>('gemini');
@@ -9,6 +10,10 @@ const OptionsApp: React.FC = () => {
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [openaiModel, setOpenaiModel] = useState('');
+  const [cascadeEnabled, setCascadeEnabled] = useState(false);
+  const [cheapModel, setCheapModel] = useState('');
+  const [strongModel, setStrongModel] = useState('');
+  const [strongTopK, setStrongTopK] = useState(6);
   const [verifyStatus, setVerifyStatus] = useState<string>('');
 
   const [qiniuAccessKey, setQiniuAccessKey] = useState('');
@@ -19,6 +24,7 @@ const OptionsApp: React.FC = () => {
   const [chunkSec, setChunkSec] = useState(90);
   const [autoAnalyzeOnOpen, setAutoAnalyzeOnOpen] = useState(false);
   const [autoSkip, setAutoSkip] = useState(false);
+  const [waterEnabledTypes, setWaterEnabledTypes] = useState<WaterReasonType[]>(['REPEAT', 'NO_NEW_INFO', 'AD']);
   const [status, setStatus] = useState<string>('');
 
   useEffect(() => {
@@ -29,6 +35,10 @@ const OptionsApp: React.FC = () => {
       setOpenaiBaseUrl(config.openaiBaseUrl ?? '');
       setOpenaiApiKey(config.openaiApiKey ?? '');
       setOpenaiModel(config.openaiModel ?? '');
+      setCascadeEnabled(Boolean(config.cascade?.enabled));
+      setCheapModel(config.cascade?.cheapModel ?? '');
+      setStrongModel(config.cascade?.strongModel ?? '');
+      setStrongTopK(Number(config.cascade?.strongTopK ?? 6));
 
       setQiniuAccessKey(config.qiniuAccessKey ?? '');
       setQiniuSecretKey(config.qiniuSecretKey ?? '');
@@ -38,6 +48,18 @@ const OptionsApp: React.FC = () => {
       setChunkSec(config.analysis.chunkSec);
       setAutoAnalyzeOnOpen(config.analysis.autoAnalyzeOnOpen);
       setAutoSkip(config.analysis.autoSkip);
+      if (Array.isArray(config.waterFilter?.enabledTypes) && config.waterFilter!.enabledTypes.length > 0) {
+        setWaterEnabledTypes(config.waterFilter!.enabledTypes as WaterReasonType[]);
+      }
+    });
+  }, []);
+
+  const toggleWaterType = useCallback((t: WaterReasonType, enabled: boolean) => {
+    setWaterEnabledTypes((prev) => {
+      const set = new Set(prev);
+      if (enabled) set.add(t);
+      else set.delete(t);
+      return Array.from(set.values());
     });
   }, []);
 
@@ -49,6 +71,15 @@ const OptionsApp: React.FC = () => {
       openaiBaseUrl: openaiBaseUrl.trim() || '',
       openaiApiKey: openaiApiKey.trim() || undefined,
       openaiModel: openaiModel.trim() || '',
+      cascade: {
+        enabled: cascadeEnabled,
+        cheapModel: cheapModel.trim() || undefined,
+        strongModel: strongModel.trim() || undefined,
+        strongTopK: Math.max(1, Math.min(20, Math.floor(Number(strongTopK) || 6)))
+      },
+      waterFilter: {
+        enabledTypes: waterEnabledTypes
+      },
 
       qiniuAccessKey: qiniuAccessKey.trim() || undefined,
       qiniuSecretKey: qiniuSecretKey.trim() || undefined,
@@ -69,6 +100,11 @@ const OptionsApp: React.FC = () => {
     openaiBaseUrl,
     openaiApiKey,
     openaiModel,
+    cascadeEnabled,
+    cheapModel,
+    strongModel,
+    strongTopK,
+    waterEnabledTypes,
     qiniuAccessKey,
     qiniuSecretKey,
     qiniuBucket,
@@ -167,7 +203,52 @@ const OptionsApp: React.FC = () => {
                     value={openaiModel}
                     onChange={(e) => setOpenaiModel(e.target.value)}
                   />
+                  <div className="mt-1 text-xs text-slate-500">未启用 Model Cascade 时，分析/校验将使用此模型。</div>
                 </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">Model Cascade</div>
+                    <div className="text-xs text-slate-500">先 cheap 粗筛出热力图，再 strong 只精炼 Top 干货。</div>
+                  </div>
+                  <input type="checkbox" checked={cascadeEnabled} onChange={(e) => setCascadeEnabled(e.target.checked)} />
+                </div>
+                {cascadeEnabled && (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">Cheap Model（粗筛）</div>
+                      <input
+                        className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                        placeholder="留空则使用上面的 Model"
+                        value={cheapModel}
+                        onChange={(e) => setCheapModel(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">Strong Model（精炼）</div>
+                      <input
+                        className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                        placeholder="留空则使用上面的 Model"
+                        value={strongModel}
+                        onChange={(e) => setStrongModel(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">Strong TopK</div>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-bilibili-blue"
+                        value={strongTopK}
+                        onChange={(e) => setStrongTopK(Number(e.target.value))}
+                      />
+                      <div className="mt-1 text-xs text-slate-500">只对最关键的 TopK 干货段做精炼。</div>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <button
@@ -246,9 +327,52 @@ const OptionsApp: React.FC = () => {
             />
           </label>
           <label className="flex items-center justify-between gap-4 text-sm">
-            <span className="text-slate-700">自动跳过注水</span>
+            <span className="text-slate-700">自动跳过注水（按类别过滤）</span>
             <input type="checkbox" checked={autoSkip} onChange={(e) => setAutoSkip(e.target.checked)} />
           </label>
+
+          <div className="pt-2">
+            <div className="text-sm font-semibold text-slate-900">注水过滤（默认策略）</div>
+            <div className="mt-1 text-xs text-slate-500">自动跳过仅对勾选类别生效；未勾选类别会正常播放。</div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={waterEnabledTypes.includes('REPEAT')}
+                  onChange={(e) => toggleWaterType('REPEAT', e.target.checked)}
+                />
+                <span>重复</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={waterEnabledTypes.includes('NO_NEW_INFO')}
+                  onChange={(e) => toggleWaterType('NO_NEW_INFO', e.target.checked)}
+                />
+                <span>无信息增量</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={waterEnabledTypes.includes('AD')} onChange={(e) => toggleWaterType('AD', e.target.checked)} />
+                <span>广告</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={waterEnabledTypes.includes('SMALLTALK')}
+                  onChange={(e) => toggleWaterType('SMALLTALK', e.target.checked)}
+                />
+                <span>寒暄</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={waterEnabledTypes.includes('OFFTOPIC')}
+                  onChange={(e) => toggleWaterType('OFFTOPIC', e.target.checked)}
+                />
+                <span>跑题</span>
+              </label>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">

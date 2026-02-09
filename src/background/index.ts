@@ -1,7 +1,7 @@
 import { getConfig, setConfig } from '../shared/storage';
 import type { BackgroundRequest, BackgroundResponse, VideoContext } from '../shared/messages';
 import { startIncrementalAnalysis, type AnalysisJob } from './analyze';
-import { clearAllData, getVideo, listSegments } from './db';
+import { clearAllData, getVideo, listAnalysisRuns, listSegments } from './db';
 import { fetchSubtitleLines, fetchVideoView } from './bilibili';
 import { buildMarkdown } from './markdown';
 import { searchInVideoKeyword, searchInVideoSemantic } from './search';
@@ -90,6 +90,11 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
         const video = await getVideo(message.videoId);
         const segments = await listSegments(message.videoId);
         respond(sendResponse, { ok: true, data: { video, segments } });
+        return;
+      }
+      case 'GET_ANALYSIS_RUNS': {
+        const runs = await listAnalysisRuns(message.videoId);
+        respond(sendResponse, { ok: true, data: { runs } });
         return;
       }
       case 'EXPORT_MARKDOWN': {

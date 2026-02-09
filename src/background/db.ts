@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { ContentType } from '../../types';
+import type { AnalysisRun, WaterReasonType } from '../../types';
 
 export interface VideoRecord {
   videoId: string; // `${bvid}_${cid}` (multi-part safe key)
@@ -23,6 +24,8 @@ export interface SegmentRecord {
   type: ContentType;
   confidence: number;
   summary: string;
+  waterReasonType?: WaterReasonType;
+  waterReasonText?: string;
   rawText?: string;
   source: 'gemini' | 'openai' | 'heuristic';
   verification?: {
@@ -46,6 +49,8 @@ export interface EmbeddingRecord {
   model: string;
 }
 
+export type AnalysisRunRecord = AnalysisRun;
+
 interface BiliDrySchema extends DBSchema {
   videos: {
     key: string;
@@ -62,23 +67,36 @@ interface BiliDrySchema extends DBSchema {
     value: EmbeddingRecord;
     indexes: { 'by-videoId': string };
   };
+  runs: {
+    key: string;
+    value: AnalysisRunRecord;
+    indexes: { 'by-videoId': string; 'by-videoId-startedAt': [string, string] };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<BiliDrySchema>> | undefined;
 
 export function getDb(): Promise<IDBPDatabase<BiliDrySchema>> {
   if (!dbPromise) {
-    dbPromise = openDB<BiliDrySchema>('bilibilidry', 1, {
-      upgrade(db) {
-        const videos = db.createObjectStore('videos', { keyPath: 'videoId' });
-        videos.createIndex('by-lastAnalyzedAt', 'lastAnalyzedAt');
+    dbPromise = openDB<BiliDrySchema>('bilibilidry', 2, {
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+          const videos = db.createObjectStore('videos', { keyPath: 'videoId' });
+          videos.createIndex('by-lastAnalyzedAt', 'lastAnalyzedAt');
 
-        const segments = db.createObjectStore('segments', { keyPath: 'id' });
-        segments.createIndex('by-videoId', 'videoId');
-        segments.createIndex('by-videoId-startTime', ['videoId', 'startTime']);
+          const segments = db.createObjectStore('segments', { keyPath: 'id' });
+          segments.createIndex('by-videoId', 'videoId');
+          segments.createIndex('by-videoId-startTime', ['videoId', 'startTime']);
 
-        const embeddings = db.createObjectStore('embeddings', { keyPath: 'id' });
-        embeddings.createIndex('by-videoId', 'videoId');
+          const embeddings = db.createObjectStore('embeddings', { keyPath: 'id' });
+          embeddings.createIndex('by-videoId', 'videoId');
+        }
+
+        if (oldVersion < 2) {
+          const runs = db.createObjectStore('runs', { keyPath: 'runId' });
+          runs.createIndex('by-videoId', 'videoId');
+          runs.createIndex('by-videoId-startedAt', ['videoId', 'startedAt']);
+        }
       }
     });
   }
@@ -87,8 +105,13 @@ export function getDb(): Promise<IDBPDatabase<BiliDrySchema>> {
 
 export async function clearAllData(): Promise<void> {
   const db = await getDb();
-  const tx = db.transaction(['videos', 'segments', 'embeddings'], 'readwrite');
-  await Promise.all([tx.objectStore('videos').clear(), tx.objectStore('segments').clear(), tx.objectStore('embeddings').clear()]);
+  const tx = db.transaction(['videos', 'segments', 'embeddings', 'runs'], 'readwrite');
+  await Promise.all([
+    tx.objectStore('videos').clear(),
+    tx.objectStore('segments').clear(),
+    tx.objectStore('embeddings').clear(),
+    tx.objectStore('runs').clear()
+  ]);
   await tx.done;
 }
 
@@ -143,4 +166,20 @@ export async function listAllSegments(): Promise<SegmentRecord[]> {
 export async function listVideos(): Promise<VideoRecord[]> {
   const db = await getDb();
   return db.getAll('videos');
+}
+
+export async function putAnalysisRun(run: AnalysisRunRecord): Promise<void> {
+  const db = await getDb();
+  await db.put('runs', run);
+}
+
+export async function listAnalysisRuns(videoId: string): Promise<AnalysisRunRecord[]> {
+  const db = await getDb();
+  const runs = await db.getAllFromIndex('runs', 'by-videoId', videoId);
+  return runs.slice().sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+}
+
+export async function getLatestAnalysisRun(videoId: string): Promise<AnalysisRunRecord | undefined> {
+  const runs = await listAnalysisRuns(videoId);
+  return runs[0];
 }
