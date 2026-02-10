@@ -3,6 +3,8 @@ import type { WaterReasonType } from '../../types';
 export interface ExtensionConfig {
   llmProvider: 'gemini' | 'openai';
 
+  developerMode: boolean;
+
   // Gemini
   geminiApiKey?: string;
 
@@ -39,6 +41,7 @@ export interface ExtensionConfig {
 
 const DEFAULT_CONFIG: ExtensionConfig = {
   llmProvider: 'gemini',
+  developerMode: false,
   openaiBaseUrl: '',
   openaiModel: '',
   openaiEmbeddingModel: '',
@@ -72,12 +75,23 @@ function envNumber(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function envBool(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  const v = value.trim().toLowerCase();
+  if (!v) return undefined;
+  if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
+  if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false;
+  return true;
+}
+
 function getEnvDefaults(): Partial<ExtensionConfig> {
   // NOTE: Vite only exposes `VITE_*` variables to client bundles.
   // This is intended for local development / self-built extensions (BYOK).
   // Do NOT publish builds that contain your private keys.
   const env: any = (import.meta as any).env ?? {};
   const llmProvider = envString(env.VITE_LLM_PROVIDER);
+  const developerMode = envBool(env.VITE_DEVELOPER_MODE ?? env.VITE_DEV_MODE);
   const geminiApiKey = envString(env.VITE_GEMINI_API_KEY);
 
   const openaiBaseUrl = envString(env.VITE_OPENAI_BASE_URL);
@@ -102,6 +116,7 @@ function getEnvDefaults(): Partial<ExtensionConfig> {
   const qiniuDomain = envString(env.VITE_QINIU_DOMAIN);
 
   const defaults: Partial<ExtensionConfig> = {};
+  if (typeof developerMode === 'boolean') defaults.developerMode = developerMode;
   if (llmProvider === 'gemini' || llmProvider === 'openai') {
     defaults.llmProvider = llmProvider;
   } else {

@@ -16,9 +16,10 @@
   - BYOK：用户自备 OpenAI-compatible / Gemini Key（扩展端直连，不上传 Key 到任何后端；支持从 `.env.local` 自动导入）
   - 本视频搜索：语义重排优先，失败回退关键词（不依赖 embedding）
   - Notion 导出：先做 Markdown 复制/下载（不接入 Notion API）
-  - Reflection Gate：分析完成后抽样校验关键干货段（字幕证据对齐），对 weak/fail 自动降置信度并可展开查看证据
-  - Model Cascade（可选）：cheap 模型先粗筛分块，strong 模型仅精炼 TopK 干货摘要，并在 Dashboard 展示耗时/体量对比
+  - Reflection Gate：分析完成后抽样校验关键干货段（字幕证据对齐），对 weak/fail 自动降置信度（证据面板仅“开发者模式”可见）
+  - Model Cascade（可选）：cheap 模型先粗筛分块，strong 模型仅精炼 TopK 干货摘要（指标面板仅“开发者模式”可见）
   - 可解释注水：WATER 段输出原因分类与短文案，并支持按类别配置自动跳过（默认保守）
+  - 开发者模式：可在设置页“高级（开发者）”开启；也支持通过 `.env.local` 的 `VITE_DEVELOPER_MODE=1` 作为默认值
 - **范围外:**
   - 无字幕视频的 OCR（后续可做增量）
   - 托管后端 / 统一推理路由（与“用户只装扩展 + BYOK”冲突）

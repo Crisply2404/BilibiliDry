@@ -1,0 +1,36 @@
+# 任务清单: 自动跳过注水 v2 + 开发者对比视图
+
+目录: `helloagents/plan/202602102309_auto_skip_and_dev_compare/`
+
+---
+
+## 1. 自动跳过注水（行为修正）
+- [ ] 1.1 在 `src/content-script/overlayApp.tsx` 中优化“取 video 元素”的策略（避免取错），验证 why.md#需求:-自动跳过（更符合直觉）-场景:-正常播放即将进入注水段
+- [ ] 1.2 在 `src/content-script/overlayApp.tsx` 中将跳转目标改为“注水块结束时间”（连通块/并集），验证 why.md#需求:-自动跳过（更符合直觉）-场景:-正常播放即将进入注水段
+- [ ] 1.3 在 `src/content-script/overlayApp.tsx` 中实现“用户手动拖进注水段 → 不强制跳过”的保护逻辑，验证 why.md#需求:-自动跳过（更符合直觉）-场景:-用户手动拖进注水段
+- [ ] 1.4 在 `src/content-script/overlayApp.tsx` 中放宽“即将进入注水段”的触发窗口，并避免“刚开启就立刻跳”的惊吓，验证 why.md#需求:-自动跳过（更符合直觉）-场景:-正常播放即将进入注水段
+- [ ] 1.5 在 `src/content-script/overlayApp.tsx` 中让 UI 明确显示开关状态（已开启/已关闭），验证 why.md#需求:-自动跳过（更符合直觉）-场景:-UI-状态可见
+- [ ] 1.6 在 `src/content-script/overlayApp.tsx` 中移除“点一次跳一次”的手动跳过按钮，仅保留自动跳过开关，验证 why.md#需求:-自动跳过（更符合直觉）-场景:-用户手动拖进注水段
+
+## 2. 注水原因中文标签（卡片/热力图）
+- [ ] 2.1 在 `components/HeatmapBar.tsx` 中将注水原因类型映射为中文标签（重复/广告/无信息增量/寒暄/跑题），验证 why.md#需求:-自动跳过（更符合直觉）-场景:-注水原因展示为中文标签
+- [ ] 2.2 在 `components/PluginView.tsx`（或对应卡片组件）中补充注水原因中文标签展示（如有注水卡片/提示），验证 why.md#需求:-自动跳过（更符合直觉）-场景:-注水原因展示为中文标签
+
+## 3. Dashboard 可用性完善（播放/跳转/逻辑积木）
+- [ ] 3.1 在 `components/DashboardView.tsx` 中把“黑屏假播放器”替换为可用的跳转/播放方案（优先 iframe embed，失败则降级为新标签页跳转），验证 why.md#需求:-Dashboard-可用性完善-场景:-Dashboard-里能“看/跳”
+- [ ] 3.2 在 `components/DashboardView.tsx` 中补充“片段列表/卡片”（DRY/WATER），并在注水片段上展示中文原因标签（重复/广告/无信息增量），验证 why.md#需求:-Dashboard-可用性完善-场景:-Dashboard-里能“看/跳”
+- [ ] 3.3 在 `src/background/analyze.ts`（或新增逻辑）中产出 `logicBlocks` 的 v0（保证不空白），并在 `components/DashboardView.tsx` 展示，验证 why.md#需求:-Dashboard-可用性完善-场景:-逻辑积木能看到东西
+- [ ] 3.4 进阶（可选）：用 LLM 生成 Background/Problem/Solution/Case 四类逻辑积木并关联片段，验证 why.md#需求:-Dashboard-可用性完善-场景:-逻辑积木能看到东西
+
+## 4. 开发者对比视图（仅开发者模式）
+- [ ] 4.1 在 `components/DashboardView.tsx` 中增加“run 对比视图”（默认最新 vs 上一次，或可选择两个 run），验证 why.md#需求:-开发者对比视图-场景:-开发者模式下看对比
+- [ ] 4.2 确保普通用户模式下完全不显示开发者面板，验证 why.md#需求:-开发者对比视图-场景:-开发者模式下看对比
+
+## 5. 冒烟验证（人工验收清单）
+- [ ] 5.1 手工跑一遍冒烟清单（见 how.md#测试与部署），记录结果（OK/不OK + 复现步骤）
+
+## 6. 安全检查
+- [ ] 6.1 执行安全检查（按G9: 权限范围、敏感信息处理、对用户行为的最小侵入）
+
+## 7. 文档更新
+- [ ] 7.1 如有必要，补充 `helloagents/wiki/dev_journey.md`：说明本次“为什么会跳错/不跳/为什么不做手动按钮”的原因与解决思路（用大白话写）

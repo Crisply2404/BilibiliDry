@@ -8,8 +8,8 @@
   - 字幕分块（按时间窗口）
   - 注水识别输出：`segments[]`（WATER/DRY + confidence + 可解释注水原因）
   - Model Cascade（可选）：cheap 先粗筛分块，strong 再精炼 TopK 干货摘要
-  - 运行指标记录：按 runId 记录耗时/体量（Dashboard 可展示对比）
-  - Reflection Gate：用字幕证据校验关键干货段，对 weak/fail 自动降置信度（必要时修正时间窗）
+  - 运行指标记录：按 runId 记录耗时/体量（仅“开发者模式”在 Dashboard 展示对比）
+  - Reflection Gate：用字幕证据校验关键干货段，对 weak/fail 自动降置信度（证据面板仅“开发者模式”可见）
 - **状态:** 🚧开发中
 - **最后更新:** 2026-02-02
 

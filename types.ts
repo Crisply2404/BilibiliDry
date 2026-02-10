@@ -56,6 +56,14 @@ export interface AnalysisRun {
   cheapModel?: string;
   strongModel?: string;
   strongTopK?: number;
+  quality?: {
+    total: number;
+    pass: number;
+    weak: number;
+    fail: number;
+    avgScore?: number; // 0..1
+    repaired: number;
+  };
   metrics: LlmCallMetric[];
 }
 

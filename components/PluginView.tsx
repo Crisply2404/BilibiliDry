@@ -10,6 +10,7 @@ interface PluginViewProps {
   data: AnalysisResult | null;
   isAnalyzing: boolean;
   isHistoryLoading?: boolean;
+  developerMode?: boolean;
   onOpenDashboard: () => void;
   onAnalyze: () => void;
   onMinimize?: () => void;
@@ -31,6 +32,7 @@ const PluginView: React.FC<PluginViewProps> = ({
   data,
   isAnalyzing,
   isHistoryLoading,
+  developerMode,
   onOpenDashboard,
   onAnalyze,
   onMinimize,
@@ -53,6 +55,7 @@ const PluginView: React.FC<PluginViewProps> = ({
   const heatmapCurrentTime = heatmap?.currentTime ?? 0;
   const heatmapOnSeek = heatmap?.onSeek ?? (() => {});
   const heatmapInteractive = Boolean(heatmap?.interactive);
+  const showDeveloperPanels = Boolean(developerMode);
 
   return (
     <div className="w-[380px] h-[560px] rounded-xl overflow-hidden bg-white/95 backdrop-blur border border-gray-200 shadow-2xl flex flex-col font-sans">
@@ -205,18 +208,20 @@ const PluginView: React.FC<PluginViewProps> = ({
                     <p className="text-sm text-gray-700 leading-snug whitespace-pre-line">{data.overallSummary}</p>
                 </div>
 
-                {/* Reflection Gate */}
-                <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-xs font-bold uppercase text-gray-400">Reflection Gate</h3>
-                      {verificationStatus && (
-                        <div className="text-[11px] text-gray-500 font-mono">
-                          校验 {verificationStatus.completed}/{verificationStatus.total}
-                        </div>
-                      )}
-                    </div>
-                    <VerificationPanel segments={data.segments} maxItems={6} title="关键干货校验" status={verificationStatus} onSeek={heatmapOnSeek} />
-                </div>
+                {/* Developer-only: Reflection Gate evidence */}
+                {showDeveloperPanels ? (
+                  <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-xs font-bold uppercase text-gray-400">Reflection Gate</h3>
+                        {verificationStatus && (
+                          <div className="text-[11px] text-gray-500 font-mono">
+                            校验 {verificationStatus.completed}/{verificationStatus.total}
+                          </div>
+                        )}
+                      </div>
+                      <VerificationPanel segments={data.segments} maxItems={6} title="关键干货校验" status={verificationStatus} onSeek={heatmapOnSeek} />
+                  </div>
+                ) : null}
 
                 {/* Quick Actions */}
                 <div className="pt-2">

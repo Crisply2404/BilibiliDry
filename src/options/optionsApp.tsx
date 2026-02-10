@@ -5,6 +5,8 @@ import type { WaterReasonType } from '../../types';
 const OptionsApp: React.FC = () => {
   const [llmProvider, setLlmProvider] = useState<'gemini' | 'openai'>('gemini');
 
+  const [developerMode, setDeveloperMode] = useState(false);
+
   const [geminiApiKey, setGeminiApiKey] = useState('');
 
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState('');
@@ -30,6 +32,7 @@ const OptionsApp: React.FC = () => {
   useEffect(() => {
     getConfig().then((config) => {
       setLlmProvider(config.llmProvider ?? 'gemini');
+      setDeveloperMode(Boolean(config.developerMode));
       setGeminiApiKey(config.geminiApiKey ?? '');
 
       setOpenaiBaseUrl(config.openaiBaseUrl ?? '');
@@ -66,6 +69,7 @@ const OptionsApp: React.FC = () => {
   const save = useCallback(async () => {
     await setConfig({
       llmProvider,
+      developerMode,
       geminiApiKey: geminiApiKey.trim() || undefined,
 
       openaiBaseUrl: openaiBaseUrl.trim() || '',
@@ -96,6 +100,7 @@ const OptionsApp: React.FC = () => {
     setTimeout(() => setStatus(''), 1200);
   }, [
     llmProvider,
+    developerMode,
     geminiApiKey,
     openaiBaseUrl,
     openaiApiKey,
@@ -374,6 +379,19 @@ const OptionsApp: React.FC = () => {
             </div>
           </div>
         </div>
+
+        <details className="rounded-xl border border-slate-200 bg-white p-5">
+          <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900">高级（开发者）</summary>
+          <div className="mt-3 space-y-3">
+            <label className="flex items-center justify-between gap-4 text-sm">
+              <span className="text-slate-700">开发者模式（显示调试信息）</span>
+              <input type="checkbox" checked={developerMode} onChange={(e) => setDeveloperMode(e.target.checked)} />
+            </label>
+            <div className="text-xs text-slate-500">
+              开启后会在仪表盘/插件弹窗展示一些开发用数据（例如 Model Cascade 指标、关键干货校验证据）。普通使用建议关闭。
+            </div>
+          </div>
+        </details>
 
         <div className="flex items-center gap-3">
           <button

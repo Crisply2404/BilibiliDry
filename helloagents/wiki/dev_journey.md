@@ -46,6 +46,7 @@
 - MV3 的 service worker 不是普通网页，开发时经常需要通过 dev server 动态加载脚本。
 - dev server 默认不会给 `chrome-extension://*` 返回 `Access-Control-Allow-Origin`。
 - 端口变更（3000→3001）时，HMR 客户端/loader 可能仍指向旧端口，导致“明明已跑起来却拉错地址”。
+- （Windows 常见）`localhost` 既可能走 IPv4（`127.0.0.1`），也可能走 IPv6（`::1`）。如果 dev server 只监听了其中一个，Chrome 就可能“连不上”。
 
 **解决（大白话）**：  
 让本机开发服务器“放行”扩展访问（加允许跨域的响应头），并且让“开发服务器端口”和“扩展要去拉的端口”永远保持一致（避免你实际在 3001 跑，它还去 3000 拉）。
@@ -53,6 +54,7 @@
 **解决（工程）**：
 - 为开发加载器增加 CORS 头，允许扩展 origin 拉取 dev 资源。
 - 端口选择与对齐：支持自动找空闲端口，并让前端 dev server 与 loader 使用同一端口（含 `PORT_OFFSET`）。
+- dev server 监听地址：开发态优先绑定到 `::`（通常是双栈），保证 `localhost` 走 IPv4/IPv6 都能连上。
 - 文档明确：UI 支持 HMR；service worker 变更通常需要在 `chrome://extensions` 里手动更新/重新加载。
 
 **为什么这么解决（取舍）**：  

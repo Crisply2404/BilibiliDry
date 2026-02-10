@@ -9,15 +9,17 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'rec
 interface DashboardViewProps {
   data: AnalysisResult;
   runs?: AnalysisRun[];
+  developerMode?: boolean;
   onBack: () => void;
 }
 
-const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, onBack }) => {
+const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, developerMode, onBack }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [activeSegment, setActiveSegment] = useState<Segment | null>(null);
 
   const latestRun = Array.isArray(runs) && runs.length > 0 ? runs[0] : null;
+  const showDeveloperPanels = Boolean(developerMode);
   const summarizeStage = (stage: 'cheap' | 'strong') => {
     const list = (latestRun?.metrics ?? []).filter((m) => m.stage === stage);
     const calls = list.length;
@@ -164,7 +166,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, onBack }) => 
                 </ResponsiveContainer>
             </div>
 
-            {latestRun && (
+            {showDeveloperPanels && latestRun && (
               <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs text-gray-700">
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-semibold">Model Cascade 指标</div>
@@ -191,9 +193,11 @@ const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, onBack }) => 
                 <div className="mt-2 text-[10px] text-gray-500">注：此处用字符数/耗时做对比（不是精确 token 计费）。</div>
               </div>
             )}
-            <div className="mt-4">
-              <VerificationPanel segments={data.segments} maxItems={6} title="关键干货校验（字幕证据）" onSeek={handleSeek} />
-            </div>
+            {showDeveloperPanels ? (
+              <div className="mt-4">
+                <VerificationPanel segments={data.segments} maxItems={6} title="关键干货校验（字幕证据）" onSeek={handleSeek} />
+              </div>
+            ) : null}
           </div>
         </div>
 

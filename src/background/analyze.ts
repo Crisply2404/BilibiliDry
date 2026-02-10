@@ -637,6 +637,44 @@ export function startIncrementalAnalysis(params: {
     }
     } finally {
       run.finishedAt = new Date().toISOString();
+      try {
+        const sinceMs = Date.parse(run.startedAt);
+        const allNow = await listSegments(videoId);
+        const verifiedNow = allNow.filter((s) => {
+          const v = s.verification;
+          if (!v) return false;
+          const checkedAtMs = Date.parse(String(v.checkedAt ?? ''));
+          if (!Number.isFinite(checkedAtMs)) return false;
+          return !Number.isFinite(sinceMs) || checkedAtMs >= sinceMs;
+        });
+
+        let pass = 0;
+        let weak = 0;
+        let fail = 0;
+        let repaired = 0;
+        let sumScore = 0;
+        for (const s of verifiedNow) {
+          const v = s.verification!;
+          if (v.verdict === 'pass') pass += 1;
+          else if (v.verdict === 'weak') weak += 1;
+          else fail += 1;
+          if (v.repairedFrom) repaired += 1;
+          sumScore += Number(v.alignmentScore) || 0;
+        }
+        const total = verifiedNow.length;
+        if (total > 0) {
+          run.quality = {
+            total,
+            pass,
+            weak,
+            fail,
+            avgScore: sumScore / total,
+            repaired
+          };
+        }
+      } catch {
+        // ignore
+      }
       await putAnalysisRun(run).catch(() => {});
     }
   })().catch((err: any) => {

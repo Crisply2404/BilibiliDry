@@ -33,6 +33,7 @@ const DashboardApp: React.FC = () => {
   const [video, setVideo] = useState<VideoRecord | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [runs, setRuns] = useState<AnalysisRun[]>([]);
+  const [developerMode, setDeveloperMode] = useState(false);
   const [error, setError] = useState<string>('');
   const autoRefreshRef = useRef<{ videoId: string; tries: number; timer: number | null } | null>(null);
 
@@ -40,6 +41,16 @@ const DashboardApp: React.FC = () => {
     const onHashChange = () => setVideoId(getVideoId());
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  useEffect(() => {
+    chrome.runtime
+      .sendMessage({ type: 'GET_CONFIG' })
+      .then((resp) => {
+        if (!resp?.ok) return;
+        setDeveloperMode(Boolean(resp.data?.developerMode));
+      })
+      .catch(() => {});
   }, []);
 
   const refresh = useCallback(async () => {
@@ -66,6 +77,7 @@ const DashboardApp: React.FC = () => {
   }, [refresh]);
 
   useEffect(() => {
+    if (!developerMode) return;
     if (!videoId) return;
     const hasVerification = segments.some((s: any) => Boolean(s?.verification));
     if (hasVerification) {
@@ -94,7 +106,7 @@ const DashboardApp: React.FC = () => {
       if (cur?.timer) window.clearInterval(cur.timer);
       autoRefreshRef.current = null;
     };
-  }, [refresh, segments, videoId]);
+  }, [developerMode, refresh, segments, videoId]);
 
   const data = useMemo(() => {
     if (!video) return null;
@@ -119,7 +131,7 @@ const DashboardApp: React.FC = () => {
     );
   }
 
-  return <DashboardView data={data} runs={runs} onBack={() => window.close()} />;
+  return <DashboardView data={data} runs={runs} developerMode={developerMode} onBack={() => window.close()} />;
 };
 
 export default DashboardApp;

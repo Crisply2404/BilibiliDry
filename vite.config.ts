@@ -64,7 +64,13 @@ async function findFreePort(startPort: number): Promise<number> {
 export default defineConfig(async () => {
   const env = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), '');
 
-  const host = 'localhost';
+  // CRXJS dev loader runs inside Chrome extension pages/service worker.
+  // On Windows, `localhost` may resolve to IPv4 or IPv6 depending on the client.
+  // If we bind the dev server to only one family (e.g. ::1 or 127.0.0.1), Chrome may fail to connect.
+  // Prefer binding to IPv6 unspecified (`::`) to (usually) enable dual-stack so both IPv4/IPv6 localhost can reach it.
+  // If the machine doesn't support IPv6, fall back to IPv4 loopback.
+  const ipv6Probe = await canListen(0, '::1');
+  const host = ipv6Probe === 'no-address' ? '127.0.0.1' : '::';
   const basePort = parsePort(env.PORT) ?? parsePort(process.env.PORT) ?? 3000;
   const offset = parseOffset(env.PORT_OFFSET ?? env.VITE_PORT_OFFSET) || parseOffset(process.env.PORT_OFFSET ?? process.env.VITE_PORT_OFFSET);
   const startPort = basePort + offset;

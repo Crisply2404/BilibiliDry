@@ -55,7 +55,28 @@ function buildVideoId(bvid: string, cid: number): string {
 }
 
 function getVideoElement(): HTMLVideoElement | null {
-  return document.querySelector('video');
+  const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+  if (videos.length === 0) return null;
+
+  const scored = videos
+    .map((v) => {
+      const rect = v.getBoundingClientRect();
+      const area = Math.max(0, rect.width) * Math.max(0, rect.height);
+      const style = window.getComputedStyle(v);
+      const opacity = Number.parseFloat(style.opacity || '1');
+      const visible =
+        rect.width >= 120 &&
+        rect.height >= 120 &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        Number.isFinite(opacity) &&
+        opacity > 0.05;
+      return { v, area, visible };
+    })
+    .filter((x) => x.visible)
+    .sort((a, b) => b.area - a.area);
+
+  return (scored[0]?.v ?? videos[0]) || null;
 }
 
 function getVideoMetaFromInitialState(page: number): VideoMeta | null {
@@ -151,17 +172,48 @@ function formatTime(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function getNextDryStart(segments: Segment[], currentTime: number): number | null {
-  const sorted = [...segments].sort((a, b) => a.startTime - b.startTime);
-  const idx = sorted.findIndex((s) => currentTime >= s.startTime && currentTime < s.endTime);
-  if (idx === -1) {
-    const next = sorted.find((s) => s.type === ContentType.DRY && s.startTime > currentTime);
-    return next ? next.startTime : null;
+function isAutoSkippableWater(seg: Segment, enabledTypes: WaterReasonType[]): boolean {
+  if (seg.type !== ContentType.WATER) return false;
+  const reasonType = (seg as any).waterReasonType as WaterReasonType | undefined;
+  if (reasonType && Array.isArray(enabledTypes) && enabledTypes.length > 0 && !enabledTypes.includes(reasonType)) return false;
+  return true;
+}
+
+function pickSegmentAtTime(params: { segments: Segment[]; t: number; predicate: (s: Segment) => boolean }): Segment | null {
+  const candidates = params.segments.filter(
+    (s) => params.t >= Number(s.startTime) && params.t < Number(s.endTime) && params.predicate(s)
+  );
+  if (candidates.length === 0) return null;
+  return (
+    candidates
+      .slice()
+      .sort((a, b) => (Number(b.confidence) - Number(a.confidence)) || (Number(b.endTime) - Number(a.endTime)))[0] ?? null
+  );
+}
+
+function getConnectedBlockEnd(params: { segments: Segment[]; anchor: Segment; predicate: (s: Segment) => boolean; gapSec?: number }): number {
+  const gapSec = Number.isFinite(params.gapSec) ? Number(params.gapSec) : 0.25;
+  const anchorStart = Number(params.anchor.startTime);
+  const anchorEnd = Number(params.anchor.endTime);
+  if (!Number.isFinite(anchorStart) || !Number.isFinite(anchorEnd) || anchorEnd <= anchorStart) return anchorEnd;
+
+  const list = params.segments
+    .filter(params.predicate)
+    .map((s) => ({ start: Number(s.startTime), end: Number(s.endTime) }))
+    .filter((x) => Number.isFinite(x.start) && Number.isFinite(x.end) && x.end > x.start)
+    .sort((a, b) => a.start - b.start);
+
+  let end = anchorEnd;
+  for (const seg of list) {
+    if (seg.end < anchorStart - gapSec) continue;
+    if (seg.start <= end + gapSec) {
+      end = Math.max(end, seg.end);
+      continue;
+    }
+    break;
   }
-  const current = sorted[idx];
-  const next = sorted.slice(idx + 1).find((s) => s.type === ContentType.DRY);
-  if (!next) return null;
-  return current.type === ContentType.WATER ? next.startTime : next.startTime;
+
+  return end;
 }
 
 const OverlayApp: React.FC = () => {
@@ -185,6 +237,16 @@ const OverlayApp: React.FC = () => {
   const [autoAnalyzeOnOpen, setAutoAnalyzeOnOpen] = useState(false);
   const [autoSkip, setAutoSkip] = useState(false);
   const [waterEnabledTypes, setWaterEnabledTypes] = useState<WaterReasonType[]>(['REPEAT', 'NO_NEW_INFO', 'AD']);
+  const [developerMode, setDeveloperMode] = useState(false);
+  const waterEnabledTypesRef = useRef<WaterReasonType[]>(waterEnabledTypes);
+  useEffect(() => {
+    waterEnabledTypesRef.current = waterEnabledTypes;
+  }, [waterEnabledTypes]);
+
+  const autoSkipSinceRef = useRef<number | null>(null);
+  useEffect(() => {
+    autoSkipSinceRef.current = autoSkip ? Date.now() : null;
+  }, [autoSkip]);
   const [videoTitle, setVideoTitle] = useState<string>('');
   const [durationSec, setDurationSec] = useState<number>(0);
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -326,6 +388,58 @@ const OverlayApp: React.FC = () => {
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    let retryTimer: number | null = null;
+    let cleanup = () => {};
+
+    const attach = () => {
+      if (cancelled) return;
+      const video = getVideoElement();
+      if (!video) {
+        retryTimer = window.setTimeout(attach, 600);
+        return;
+      }
+
+      const onSeeked = () => {
+        const meta = lastSeekRef.current;
+        const now = Date.now();
+        const kind = meta && now - meta.atMs < 1200 ? meta.kind : 'unknown';
+        lastSeekRef.current = null;
+        if (kind === 'system') return;
+
+        const t = video.currentTime || 0;
+        const enabledTypes = waterEnabledTypesRef.current;
+        const seg = pickSegmentAtTime({
+          segments: activeSegmentsRef.current,
+          t,
+          predicate: (s) => isAutoSkippableWater(s, enabledTypes)
+        });
+        if (seg) {
+          // Product rule: if user manually seeks into a skippable WATER segment, don't force auto-skip.
+          const untilTime = getConnectedBlockEnd({
+            segments: activeSegmentsRef.current,
+            anchor: seg,
+            predicate: (s) => isAutoSkippableWater(s, enabledTypes)
+          });
+          allowWaterRef.current = { untilTime };
+        } else {
+          allowWaterRef.current = null;
+        }
+      };
+
+      video.addEventListener('seeked', onSeeked);
+      cleanup = () => video.removeEventListener('seeked', onSeeked);
+    };
+
+    attach();
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+      cleanup();
+    };
+  }, []);
+
   const resolveCurrentVideoMeta = useCallback(async (): Promise<VideoMeta | null> => {
     if (!bvid) return null;
     const fromState = getVideoMetaFromInitialState(page);
@@ -424,6 +538,23 @@ const OverlayApp: React.FC = () => {
     return segments;
   }, [previousSegments, segments, segmentsView]);
 
+  const activeSegmentsRef = useRef<Segment[]>([]);
+  useEffect(() => {
+    activeSegmentsRef.current = activeSegments;
+  }, [activeSegments]);
+
+  const sortedActiveSegments = useMemo(() => {
+    return activeSegments.slice().sort((a, b) => a.startTime - b.startTime);
+  }, [activeSegments]);
+
+  const sortedActiveSegmentsRef = useRef<Segment[]>([]);
+  useEffect(() => {
+    sortedActiveSegmentsRef.current = sortedActiveSegments;
+  }, [sortedActiveSegments]);
+
+  const lastSeekRef = useRef<{ kind: 'system' | 'user'; atMs: number } | null>(null);
+  const allowWaterRef = useRef<{ untilTime: number } | null>(null);
+
   const mergeSegments = useCallback((base: Segment[], incoming: Segment[]): Segment[] => {
     const next = new Map(base.map((s) => [s.id, s] as const));
     for (const s of incoming) {
@@ -440,10 +571,29 @@ const OverlayApp: React.FC = () => {
         if (!resp?.ok) return;
         setAutoAnalyzeOnOpen(Boolean(resp.data?.analysis?.autoAnalyzeOnOpen));
         setAutoSkip(Boolean(resp.data?.analysis?.autoSkip));
+        setDeveloperMode(Boolean(resp.data?.developerMode));
         const enabled = resp.data?.waterFilter?.enabledTypes;
         if (Array.isArray(enabled) && enabled.length > 0) setWaterEnabledTypes(enabled as WaterReasonType[]);
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const onChanged = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName: chrome.storage.AreaName
+    ) => {
+      if (areaName !== 'local') return;
+      const next = changes?.config?.newValue as any;
+      if (!next) return;
+      setAutoAnalyzeOnOpen(Boolean(next?.analysis?.autoAnalyzeOnOpen));
+      setAutoSkip(Boolean(next?.analysis?.autoSkip));
+      setDeveloperMode(Boolean(next?.developerMode));
+      const enabled = next?.waterFilter?.enabledTypes;
+      if (Array.isArray(enabled) && enabled.length > 0) setWaterEnabledTypes(enabled as WaterReasonType[]);
+    };
+    chrome.storage.onChanged.addListener(onChanged);
+    return () => chrome.storage.onChanged.removeListener(onChanged);
   }, []);
 
   useEffect(() => {
@@ -483,7 +633,7 @@ const OverlayApp: React.FC = () => {
         return;
       }
       if (message.type === 'REFLECTION_UPDATE') {
-        if (uiModeRef.current === 'closed') setUiMode('open');
+        if (developerMode && uiModeRef.current === 'closed') setUiMode('open');
         setReflection({ progress: message.progress, completed: message.completed, total: message.total });
         if (Array.isArray(message.segments) && message.segments.length > 0) {
           setSegments((prev) => mergeSegments(prev, message.segments!));
@@ -494,7 +644,7 @@ const OverlayApp: React.FC = () => {
     };
     chrome.runtime.onMessage.addListener(handler as any);
     return () => chrome.runtime.onMessage.removeListener(handler as any);
-  }, [mergeSegments, refreshState]);
+  }, [developerMode, mergeSegments, refreshState]);
 
   const startAnalysis = useCallback(async () => {
     if (!bvid) return;
@@ -559,37 +709,115 @@ const OverlayApp: React.FC = () => {
       setError('未找到播放器 video 元素');
       return;
     }
-    const next = getNextDryStart(activeSegments, video.currentTime || 0);
-    if (next == null) {
-      setError('未找到下一个干货片段');
+    const t = video.currentTime || 0;
+    const current = pickSegmentAtTime({
+      segments: activeSegmentsRef.current,
+      t,
+      predicate: (s) => s.type === ContentType.WATER
+    });
+    if (!current) {
+      setError('当前不是注水段（无需跳过）');
       return;
     }
-    video.currentTime = next;
-  }, [activeSegments]);
+
+    const untilTime = getConnectedBlockEnd({
+      segments: activeSegmentsRef.current,
+      anchor: current,
+      predicate: (s) => s.type === ContentType.WATER
+    });
+    if (!Number.isFinite(untilTime) || untilTime <= t + 0.01) {
+      setError('未找到可跳过的注水片段');
+      return;
+    }
+    lastSeekRef.current = { kind: 'system', atMs: Date.now() };
+    video.currentTime = untilTime;
+  }, []);
+
+  const currentSegment = useMemo(() => {
+    const t = currentTimeSec;
+    const water = pickSegmentAtTime({ segments: activeSegments, t, predicate: (s) => s.type === ContentType.WATER });
+    if (water) return water;
+    const dry = pickSegmentAtTime({ segments: activeSegments, t, predicate: (s) => s.type === ContentType.DRY });
+    return dry;
+  }, [activeSegments, currentTimeSec]);
+
+  const canManualSkip = Boolean(currentSegment && currentSegment.type === ContentType.WATER);
+
+  const setAutoSkipPersist = useCallback(async (next: boolean) => {
+    setAutoSkip(next);
+    try {
+      await chrome.runtime.sendMessage({ type: 'SET_CONFIG', config: { analysis: { autoSkip: next } } });
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     if (!autoSkip) return;
     const timer = window.setInterval(() => {
       const video = getVideoElement();
       if (!video) return;
+      if (video.paused) return;
       const t = video.currentTime || 0;
-      const current = activeSegments.find((s) => t >= s.startTime && t < s.endTime);
-      if (!current || current.type !== ContentType.WATER) return;
-      // Conservative default: only auto-skip WATER when we have a reason type and it is enabled.
-      const reasonType = (current as any).waterReasonType as WaterReasonType | undefined;
-      if (!reasonType) return;
-      if (!waterEnabledTypes.includes(reasonType)) return;
-      const next = getNextDryStart(activeSegments, t);
-      if (next == null) return;
-      video.currentTime = next;
-    }, 600);
+
+      const sorted = sortedActiveSegmentsRef.current;
+      if (!sorted || sorted.length === 0) return;
+
+      const enabledTypes = waterEnabledTypes;
+      const currentWater = pickSegmentAtTime({
+        segments: sorted,
+        t,
+        predicate: (s) => isAutoSkippableWater(s, enabledTypes)
+      });
+
+      const hold = allowWaterRef.current;
+      if (hold && (!currentWater || t >= hold.untilTime)) {
+        allowWaterRef.current = null;
+      }
+
+      // Case 1: already inside skippable WATER.
+      if (currentWater) {
+        const activeHold = allowWaterRef.current;
+        if (activeHold && t < activeHold.untilTime) return;
+        const untilTime = getConnectedBlockEnd({
+          segments: sorted,
+          anchor: currentWater,
+          predicate: (s) => isAutoSkippableWater(s, enabledTypes)
+        });
+        if (!Number.isFinite(untilTime) || untilTime <= t + 0.01) return;
+        lastSeekRef.current = { kind: 'system', atMs: Date.now() };
+        video.currentTime = untilTime;
+        return;
+      }
+
+      // Case 2: about to enter skippable WATER — skip proactively.
+      // DX: avoid "toggle = instant jump" surprise; only start proactive skipping a moment after enabling.
+      const since = autoSkipSinceRef.current;
+      if (since && Date.now() - since < 1200) return;
+
+      const nextWater = sorted.find(
+        (s) => isAutoSkippableWater(s, enabledTypes) && Number.isFinite(s.startTime) && Number(s.startTime) >= t
+      );
+      if (!nextWater) return;
+      const dt = Number(nextWater.startTime) - t;
+      if (!Number.isFinite(dt) || dt < 0 || dt > 1.25) return;
+      const untilTime = getConnectedBlockEnd({
+        segments: sorted,
+        anchor: nextWater,
+        predicate: (s) => isAutoSkippableWater(s, enabledTypes)
+      });
+      if (!Number.isFinite(untilTime) || untilTime <= t + 0.01) return;
+      lastSeekRef.current = { kind: 'system', atMs: Date.now() };
+      video.currentTime = untilTime;
+    }, 250);
     return () => window.clearInterval(timer);
-  }, [activeSegments, autoSkip, waterEnabledTypes]);
+  }, [autoSkip, waterEnabledTypes]);
 
   const seek = useCallback((time: number) => {
     const video = getVideoElement();
     if (!video) return;
     const t = Math.max(0, time);
+    lastSeekRef.current = { kind: 'user', atMs: Date.now() };
     video.currentTime = t;
     lastKnownTimeRef.current = t;
     setCurrentTimeSec(t);
@@ -729,7 +957,8 @@ const OverlayApp: React.FC = () => {
             onOpenDashboard={openDashboard}
             onMinimize={minimizeToBall}
             onClose={closeOverlay}
-            verificationStatus={reflection ?? undefined}
+            developerMode={developerMode}
+            verificationStatus={developerMode ? (reflection ?? undefined) : undefined}
             onHeaderPointerDown={(e) => {
               const el = e.target as HTMLElement | null;
               if (el && el.closest('button')) return;
@@ -763,9 +992,9 @@ const OverlayApp: React.FC = () => {
                     <button
                       className="flex-1 rounded-lg bg-bilibili-pink px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-40"
                       onClick={skip}
-                      disabled={activeSegments.length === 0}
+                      disabled={!canManualSkip}
                     >
-                      一键跳过注水
+                      {canManualSkip ? '跳过当前注水（一次）' : '当前不是注水段'}
                     </button>
                     <button
                       className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-40"
@@ -775,6 +1004,17 @@ const OverlayApp: React.FC = () => {
                       导出 MD
                     </button>
                   </div>
+                  <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs">
+                    <span className="text-gray-700">
+                      自动跳过注水（{autoSkip ? '已开启' : '已关闭'}，快要进入注水段会绕开）
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={autoSkip}
+                      onChange={(e) => setAutoSkipPersist(e.target.checked)}
+                    />
+                  </label>
+                  <div className="text-[10px] text-gray-400">提示：你手动拖进注水段时，不会强制自动跳过。</div>
                   {isAnalyzing && (
                     <button
                       className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50"
