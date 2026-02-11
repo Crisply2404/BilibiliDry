@@ -64,17 +64,36 @@ function getVideoElement(): HTMLVideoElement | null {
       const area = Math.max(0, rect.width) * Math.max(0, rect.height);
       const style = window.getComputedStyle(v);
       const opacity = Number.parseFloat(style.opacity || '1');
+      const inViewport =
+        rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
       const visible =
+        inViewport &&
         rect.width >= 120 &&
         rect.height >= 120 &&
         style.display !== 'none' &&
         style.visibility !== 'hidden' &&
         Number.isFinite(opacity) &&
         opacity > 0.05;
-      return { v, area, visible };
+      const currentTime = Number((v as any).currentTime ?? 0);
+      const duration = Number((v as any).duration ?? 0);
+      const readyState = Number((v as any).readyState ?? 0);
+      const paused = Boolean((v as any).paused);
+      const ended = Boolean((v as any).ended);
+      const playing = !paused && !ended && readyState >= 2 && Number.isFinite(duration) && duration > 0;
+      const progressed = Number.isFinite(currentTime) && currentTime > 1 && Number.isFinite(duration) && duration > 0;
+      return { v, area, visible, playing, progressed, currentTime };
     })
     .filter((x) => x.visible)
-    .sort((a, b) => b.area - a.area);
+    .sort((a, b) => {
+      // Prefer the currently playing video (B站页面可能存在多个 video 元素).
+      if (a.playing !== b.playing) return a.playing ? -1 : 1;
+      // Then prefer a video that has progressed (currentTime > 1s).
+      if (a.progressed !== b.progressed) return a.progressed ? -1 : 1;
+      // Then by area.
+      if (b.area !== a.area) return b.area - a.area;
+      // Finally by currentTime (avoid picking a reset/hidden one).
+      return (Number(b.currentTime) || 0) - (Number(a.currentTime) || 0);
+    });
 
   return (scored[0]?.v ?? videos[0]) || null;
 }
@@ -174,9 +193,10 @@ function formatTime(sec: number): string {
 
 function isAutoSkippableWater(seg: Segment, enabledTypes: WaterReasonType[]): boolean {
   if (seg.type !== ContentType.WATER) return false;
+  if (!Array.isArray(enabledTypes) || enabledTypes.length === 0) return false;
   const reasonType = (seg as any).waterReasonType as WaterReasonType | undefined;
-  if (reasonType && Array.isArray(enabledTypes) && enabledTypes.length > 0 && !enabledTypes.includes(reasonType)) return false;
-  return true;
+  if (!reasonType) return true;
+  return enabledTypes.includes(reasonType);
 }
 
 function pickSegmentAtTime(params: { segments: Segment[]; t: number; predicate: (s: Segment) => boolean }): Segment | null {
@@ -236,12 +256,8 @@ const OverlayApp: React.FC = () => {
   const [videoId, setVideoId] = useState<string | null>(null);
   const [autoAnalyzeOnOpen, setAutoAnalyzeOnOpen] = useState(false);
   const [autoSkip, setAutoSkip] = useState(false);
-  const [waterEnabledTypes, setWaterEnabledTypes] = useState<WaterReasonType[]>(['REPEAT', 'NO_NEW_INFO', 'AD']);
+  const [waterEnabledTypes, setWaterEnabledTypes] = useState<WaterReasonType[]>(['REPEAT', 'NO_NEW_INFO', 'AD', 'SMALLTALK', 'OFFTOPIC']);
   const [developerMode, setDeveloperMode] = useState(false);
-  const waterEnabledTypesRef = useRef<WaterReasonType[]>(waterEnabledTypes);
-  useEffect(() => {
-    waterEnabledTypesRef.current = waterEnabledTypes;
-  }, [waterEnabledTypes]);
 
   const autoSkipSinceRef = useRef<number | null>(null);
   useEffect(() => {
@@ -388,54 +404,98 @@ const OverlayApp: React.FC = () => {
     return () => window.clearInterval(id);
   }, []);
 
+  const lastPlayerSyncRef = useRef<{ atMs: number; timeSec: number } | null>(null);
   useEffect(() => {
-    let cancelled = false;
-    let retryTimer: number | null = null;
+    const id = window.setInterval(() => {
+      const idKey = String(videoId ?? '').trim();
+      if (!idKey || !idKey.includes('_')) return;
+      if (!bvid) return;
+      const video = getVideoElement();
+      if (!video) return;
+
+      const t = Number(video.currentTime || 0);
+      if (!Number.isFinite(t)) return;
+
+      const now = Date.now();
+      const last = lastPlayerSyncRef.current;
+      if (last && now - last.atMs < 500 && Math.abs(t - last.timeSec) < 0.5) return;
+      lastPlayerSyncRef.current = { atMs: now, timeSec: t };
+
+      const durationSec = Number(video.duration || 0);
+      const playing = Boolean(!video.paused && !video.ended && video.readyState >= 2);
+      chrome.runtime
+        .sendMessage({
+          type: 'PLAYER_TIME_UPDATE',
+          videoId: idKey,
+          bvid,
+          currentTimeSec: t,
+          durationSec: Number.isFinite(durationSec) && durationSec > 0 ? durationSec : undefined,
+          playing,
+          updatedAtMs: now
+        })
+        .catch(() => {});
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [bvid, videoId]);
+
+  useEffect(() => {
+    let current: HTMLVideoElement | null = null;
     let cleanup = () => {};
 
-    const attach = () => {
-      if (cancelled) return;
-      const video = getVideoElement();
-      if (!video) {
-        retryTimer = window.setTimeout(attach, 600);
-        return;
-      }
+    const onSeeked = (e: Event) => {
+      const video = e.currentTarget as HTMLVideoElement | null;
+      if (!video) return;
 
-      const onSeeked = () => {
-        const meta = lastSeekRef.current;
-        const now = Date.now();
-        const kind = meta && now - meta.atMs < 1200 ? meta.kind : 'unknown';
-        lastSeekRef.current = null;
-        if (kind === 'system') return;
+      const meta = lastSeekRef.current;
+      const now = Date.now();
+      const kind = meta && now - meta.atMs < 1200 ? meta.kind : 'unknown';
+      lastSeekRef.current = null;
+      if (kind === 'system') return;
 
-        const t = video.currentTime || 0;
-        const enabledTypes = waterEnabledTypesRef.current;
-        const seg = pickSegmentAtTime({
+      const t = video.currentTime || 0;
+      const seg = pickSegmentAtTime({
+        segments: activeSegmentsRef.current,
+        t,
+        predicate: (s) => s.type === ContentType.WATER
+      });
+      if (seg) {
+        const untilTime = getConnectedBlockEnd({
           segments: activeSegmentsRef.current,
-          t,
-          predicate: (s) => isAutoSkippableWater(s, enabledTypes)
+          anchor: seg,
+          predicate: (s) => s.type === ContentType.WATER
         });
-        if (seg) {
-          // Product rule: if user manually seeks into a skippable WATER segment, don't force auto-skip.
-          const untilTime = getConnectedBlockEnd({
-            segments: activeSegmentsRef.current,
-            anchor: seg,
-            predicate: (s) => isAutoSkippableWater(s, enabledTypes)
-          });
-          allowWaterRef.current = { untilTime };
-        } else {
-          allowWaterRef.current = null;
-        }
-      };
-
-      video.addEventListener('seeked', onSeeked);
-      cleanup = () => video.removeEventListener('seeked', onSeeked);
+        allowWaterRef.current = { untilTime };
+      } else {
+        allowWaterRef.current = null;
+      }
     };
 
-    attach();
+    const attach = (video: HTMLVideoElement) => {
+      video.addEventListener('seeked', onSeeked);
+      return () => video.removeEventListener('seeked', onSeeked);
+    };
+
+    const tick = () => {
+      const next = getVideoElement();
+      if (!next) {
+        // If the old video was removed from DOM, detach.
+        if (current && !document.contains(current)) {
+          cleanup();
+          current = null;
+          cleanup = () => {};
+        }
+        return;
+      }
+      if (next === current) return;
+      cleanup();
+      current = next;
+      cleanup = attach(next);
+    };
+
+    tick();
+    const id = window.setInterval(tick, 800);
     return () => {
-      cancelled = true;
-      if (retryTimer) window.clearTimeout(retryTimer);
+      window.clearInterval(id);
       cleanup();
     };
   }, []);
@@ -573,7 +633,7 @@ const OverlayApp: React.FC = () => {
         setAutoSkip(Boolean(resp.data?.analysis?.autoSkip));
         setDeveloperMode(Boolean(resp.data?.developerMode));
         const enabled = resp.data?.waterFilter?.enabledTypes;
-        if (Array.isArray(enabled) && enabled.length > 0) setWaterEnabledTypes(enabled as WaterReasonType[]);
+        if (Array.isArray(enabled)) setWaterEnabledTypes(enabled as WaterReasonType[]);
       })
       .catch(() => {});
   }, []);
@@ -590,7 +650,7 @@ const OverlayApp: React.FC = () => {
       setAutoSkip(Boolean(next?.analysis?.autoSkip));
       setDeveloperMode(Boolean(next?.developerMode));
       const enabled = next?.waterFilter?.enabledTypes;
-      if (Array.isArray(enabled) && enabled.length > 0) setWaterEnabledTypes(enabled as WaterReasonType[]);
+      if (Array.isArray(enabled)) setWaterEnabledTypes(enabled as WaterReasonType[]);
     };
     chrome.storage.onChanged.addListener(onChanged);
     return () => chrome.storage.onChanged.removeListener(onChanged);
@@ -600,7 +660,25 @@ const OverlayApp: React.FC = () => {
     const handler = (message: BackgroundPush) => {
       const current = currentVideoKeyRef.current;
       if (!current) return;
-      if (current && message.videoId !== current) return;
+      if (current && message.videoId !== current) {
+        const curHasCid = String(current).includes('_');
+        const msgHasCid = String(message.videoId).includes('_');
+        if (curHasCid && msgHasCid) return;
+        const curBvid = String(current).split('_')[0] ?? '';
+        const msgBvid = String(message.videoId).split('_')[0] ?? '';
+        if (!curBvid || !msgBvid || curBvid !== msgBvid) return;
+      }
+      if (message.type === 'SEEK_TO') {
+        const video = getVideoElement();
+        if (!video) return;
+        const t = Math.max(0, Number((message as any).timeSec ?? 0));
+        if (!Number.isFinite(t)) return;
+        lastSeekRef.current = { kind: 'system', atMs: Date.now() };
+        video.currentTime = t;
+        lastKnownTimeRef.current = t;
+        setCurrentTimeSec(t);
+        return;
+      }
       if (message.type === 'ANALYSIS_ERROR') {
         if (uiModeRef.current === 'closed') setUiMode('open');
         setIsAnalyzing(false);
@@ -703,36 +781,6 @@ const OverlayApp: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAnalyzeOnOpen, bvid]);
 
-  const skip = useCallback(() => {
-    const video = getVideoElement();
-    if (!video) {
-      setError('未找到播放器 video 元素');
-      return;
-    }
-    const t = video.currentTime || 0;
-    const current = pickSegmentAtTime({
-      segments: activeSegmentsRef.current,
-      t,
-      predicate: (s) => s.type === ContentType.WATER
-    });
-    if (!current) {
-      setError('当前不是注水段（无需跳过）');
-      return;
-    }
-
-    const untilTime = getConnectedBlockEnd({
-      segments: activeSegmentsRef.current,
-      anchor: current,
-      predicate: (s) => s.type === ContentType.WATER
-    });
-    if (!Number.isFinite(untilTime) || untilTime <= t + 0.01) {
-      setError('未找到可跳过的注水片段');
-      return;
-    }
-    lastSeekRef.current = { kind: 'system', atMs: Date.now() };
-    video.currentTime = untilTime;
-  }, []);
-
   const currentSegment = useMemo(() => {
     const t = currentTimeSec;
     const water = pickSegmentAtTime({ segments: activeSegments, t, predicate: (s) => s.type === ContentType.WATER });
@@ -740,8 +788,6 @@ const OverlayApp: React.FC = () => {
     const dry = pickSegmentAtTime({ segments: activeSegments, t, predicate: (s) => s.type === ContentType.DRY });
     return dry;
   }, [activeSegments, currentTimeSec]);
-
-  const canManualSkip = Boolean(currentSegment && currentSegment.type === ContentType.WATER);
 
   const setAutoSkipPersist = useCallback(async (next: boolean) => {
     setAutoSkip(next);
@@ -763,6 +809,20 @@ const OverlayApp: React.FC = () => {
       const sorted = sortedActiveSegmentsRef.current;
       if (!sorted || sorted.length === 0) return;
 
+      const hold = allowWaterRef.current;
+      if (hold) {
+        const anyWater = pickSegmentAtTime({
+          segments: sorted,
+          t,
+          predicate: (s) => s.type === ContentType.WATER
+        });
+        if (!anyWater || !Number.isFinite(hold.untilTime) || t >= hold.untilTime) {
+          allowWaterRef.current = null;
+        } else {
+          return;
+        }
+      }
+
       const enabledTypes = waterEnabledTypes;
       const currentWater = pickSegmentAtTime({
         segments: sorted,
@@ -770,15 +830,8 @@ const OverlayApp: React.FC = () => {
         predicate: (s) => isAutoSkippableWater(s, enabledTypes)
       });
 
-      const hold = allowWaterRef.current;
-      if (hold && (!currentWater || t >= hold.untilTime)) {
-        allowWaterRef.current = null;
-      }
-
       // Case 1: already inside skippable WATER.
       if (currentWater) {
-        const activeHold = allowWaterRef.current;
-        if (activeHold && t < activeHold.untilTime) return;
         const untilTime = getConnectedBlockEnd({
           segments: sorted,
           anchor: currentWater,
@@ -800,7 +853,7 @@ const OverlayApp: React.FC = () => {
       );
       if (!nextWater) return;
       const dt = Number(nextWater.startTime) - t;
-      if (!Number.isFinite(dt) || dt < 0 || dt > 1.25) return;
+      if (!Number.isFinite(dt) || dt < 0 || dt > 2.0) return;
       const untilTime = getConnectedBlockEnd({
         segments: sorted,
         anchor: nextWater,
@@ -990,14 +1043,7 @@ const OverlayApp: React.FC = () => {
                   )}
                   <div className="flex gap-2">
                     <button
-                      className="flex-1 rounded-lg bg-bilibili-pink px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-40"
-                      onClick={skip}
-                      disabled={!canManualSkip}
-                    >
-                      {canManualSkip ? '跳过当前注水（一次）' : '当前不是注水段'}
-                    </button>
-                    <button
-                      className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-40"
+                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-40"
                       onClick={doExport}
                       disabled={activeSegments.length === 0}
                     >
@@ -1014,6 +1060,10 @@ const OverlayApp: React.FC = () => {
                       onChange={(e) => setAutoSkipPersist(e.target.checked)}
                     />
                   </label>
+                  <div className="text-[10px] text-gray-400">
+                    当前：{currentSegment ? (currentSegment.type === ContentType.WATER ? '注水' : '干货') : '未命中片段'}
+                  </div>
+                  <div className="text-[10px] text-gray-400">注水类别过滤：可在设置页调整（重复/广告/无信息增量/寒暄/跑题）。</div>
                   <div className="text-[10px] text-gray-400">提示：你手动拖进注水段时，不会强制自动跳过。</div>
                   {isAnalyzing && (
                     <button

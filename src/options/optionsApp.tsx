@@ -26,7 +26,7 @@ const OptionsApp: React.FC = () => {
   const [chunkSec, setChunkSec] = useState(90);
   const [autoAnalyzeOnOpen, setAutoAnalyzeOnOpen] = useState(false);
   const [autoSkip, setAutoSkip] = useState(false);
-  const [waterEnabledTypes, setWaterEnabledTypes] = useState<WaterReasonType[]>(['REPEAT', 'NO_NEW_INFO', 'AD']);
+  const [waterEnabledTypes, setWaterEnabledTypes] = useState<WaterReasonType[]>(['REPEAT', 'NO_NEW_INFO', 'AD', 'SMALLTALK', 'OFFTOPIC']);
   const [status, setStatus] = useState<string>('');
 
   useEffect(() => {
@@ -51,9 +51,7 @@ const OptionsApp: React.FC = () => {
       setChunkSec(config.analysis.chunkSec);
       setAutoAnalyzeOnOpen(config.analysis.autoAnalyzeOnOpen);
       setAutoSkip(config.analysis.autoSkip);
-      if (Array.isArray(config.waterFilter?.enabledTypes) && config.waterFilter!.enabledTypes.length > 0) {
-        setWaterEnabledTypes(config.waterFilter!.enabledTypes as WaterReasonType[]);
-      }
+      if (Array.isArray(config.waterFilter?.enabledTypes)) setWaterEnabledTypes(config.waterFilter!.enabledTypes as WaterReasonType[]);
     });
   }, []);
 

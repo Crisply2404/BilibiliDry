@@ -56,9 +56,12 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     strongTopK: 6
   },
   waterFilter: {
-    enabledTypes: ['REPEAT', 'NO_NEW_INFO', 'AD']
+    enabledTypes: ['REPEAT', 'NO_NEW_INFO', 'AD', 'SMALLTALK', 'OFFTOPIC']
   }
 };
+
+const ALL_WATER_REASON_TYPES: WaterReasonType[] = ['REPEAT', 'NO_NEW_INFO', 'AD', 'SMALLTALK', 'OFFTOPIC'];
+const LEGACY_DEFAULT_WATER_REASON_TYPES: WaterReasonType[] = ['REPEAT', 'NO_NEW_INFO', 'AD'];
 
 const STORAGE_KEY = 'config';
 
@@ -83,6 +86,27 @@ function envBool(value: unknown): boolean | undefined {
   if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
   if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false;
   return true;
+}
+
+function uniqueWaterReasonTypes(input: unknown): WaterReasonType[] | null {
+  if (!Array.isArray(input)) return null;
+  const known = new Set<WaterReasonType>(ALL_WATER_REASON_TYPES);
+  const out: WaterReasonType[] = [];
+  for (const item of input) {
+    if (typeof item !== 'string') continue;
+    const t = item as WaterReasonType;
+    if (!known.has(t)) continue;
+    if (out.includes(t)) continue;
+    out.push(t);
+  }
+  return out;
+}
+
+function setKey(list: WaterReasonType[]): string {
+  return list
+    .slice()
+    .sort()
+    .join('|');
 }
 
 function getEnvDefaults(): Partial<ExtensionConfig> {
@@ -183,6 +207,17 @@ export async function getConfig(): Promise<ExtensionConfig> {
   if (!merged.llmProvider) merged.llmProvider = 'gemini';
   if (!merged.cascade) merged.cascade = { ...DEFAULT_CONFIG.cascade };
   if (!merged.waterFilter) merged.waterFilter = { ...DEFAULT_CONFIG.waterFilter };
+
+  // Upgrade legacy default water filter (3 types) → new default (all types).
+  // Only auto-upgrade when the stored config is exactly the legacy default, to avoid overriding user choices.
+  const storedEnabledTypes = uniqueWaterReasonTypes(config?.waterFilter?.enabledTypes);
+  if (
+    storedEnabledTypes &&
+    setKey(storedEnabledTypes) === setKey(LEGACY_DEFAULT_WATER_REASON_TYPES) &&
+    Array.isArray(merged.waterFilter?.enabledTypes)
+  ) {
+    merged.waterFilter = { enabledTypes: ALL_WATER_REASON_TYPES.slice() };
+  }
 
   // When env explicitly provides cheap+strong models, force cascade on this runtime config.
   // This lets local `.env.local` become a one-stop switch for development.

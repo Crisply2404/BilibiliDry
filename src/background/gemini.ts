@@ -53,6 +53,12 @@ export async function analyzeCaptionChunkWithGemini(params: {
 1) startTime/endTime 必须是【视频开头起的绝对秒数】（不是分块内相对时间）。
 2) 输出 segments 需要尽量覆盖 chunkStartSec~chunkEndSec。
 3) type 仅允许 DRY/WATER；confidence 为 0~1。
+   - 置信度写法（请避免“两极分化”）：
+     * 0.50 = 不确定 / 证据不足
+     * 0.60~0.75 = 大概率成立（常用区间）
+     * 0.80~0.88 = 很确定（需要字幕里有明确表述）
+     * >0.90 = 极少用，只有“字幕几乎原话支持”才给
+     * 不要输出 0 或 1（除非你认为片段明显完全不成立/完全确定）
 4) summary 必须中文，尽量短（<= 20 字）。
 5) 优先产出“可跳过”信息：宁可粗一点，也要保证 start/end 合理、不重叠、不越界。
 `;

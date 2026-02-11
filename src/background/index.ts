@@ -8,6 +8,19 @@ import { searchInVideoKeyword, searchInVideoSemantic } from './search';
 import { getActiveLlm } from './llm';
 import { testConnectionWithOpenAI } from './openai';
 
+type PlayerTimeState = {
+  videoId: string;
+  bvid: string;
+  tabId: number;
+  currentTimeSec: number;
+  durationSec?: number;
+  playing?: boolean;
+  updatedAtMs: number;
+};
+
+const playerStates = new Map<string, PlayerTimeState>();
+const playerSubscribers = new Map<string, Set<chrome.runtime.Port>>();
+
 function redactSecrets(text: string): string {
   return (
     text
@@ -27,6 +40,59 @@ function respond(sendResponse: (response: BackgroundResponse) => void, response:
     // ignore
   }
 }
+
+function broadcastPlayerTime(videoId: string, state: PlayerTimeState) {
+  const subs = playerSubscribers.get(videoId);
+  if (!subs || subs.size === 0) return;
+  for (const port of subs) {
+    try {
+      port.postMessage({ type: 'PLAYER_TIME', videoId, state });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'DASHBOARD_PLAYER_SYNC') return;
+
+  let subscribedVideoId: string | null = null;
+
+  const onMessage = (msg: any) => {
+    if (!msg || msg.type !== 'SUBSCRIBE_PLAYER_TIME') return;
+    const videoId = String(msg.videoId ?? '').trim();
+    if (!videoId) return;
+
+    // Move subscription if changed.
+    if (subscribedVideoId && subscribedVideoId !== videoId) {
+      const prev = playerSubscribers.get(subscribedVideoId);
+      prev?.delete(port);
+      if (prev && prev.size === 0) playerSubscribers.delete(subscribedVideoId);
+    }
+
+    subscribedVideoId = videoId;
+    const set = playerSubscribers.get(videoId) ?? new Set<chrome.runtime.Port>();
+    set.add(port);
+    playerSubscribers.set(videoId, set);
+
+    const state = playerStates.get(videoId);
+    if (state) {
+      try {
+        port.postMessage({ type: 'PLAYER_TIME', videoId, state });
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  port.onMessage.addListener(onMessage);
+  port.onDisconnect.addListener(() => {
+    if (!subscribedVideoId) return;
+    const set = playerSubscribers.get(subscribedVideoId);
+    set?.delete(port);
+    if (set && set.size === 0) playerSubscribers.delete(subscribedVideoId);
+  });
+});
 
 chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]: unknown }, sender, sendResponse) => {
   (async () => {
@@ -111,6 +177,57 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
       case 'OPEN_DASHBOARD': {
         const url = chrome.runtime.getURL(`dashboard.html#${encodeURIComponent(message.videoId)}`);
         await chrome.tabs.create({ url });
+        respond(sendResponse, { ok: true });
+        return;
+      }
+      case 'PLAYER_TIME_UPDATE': {
+        const tabId = sender.tab?.id;
+        if (!tabId) {
+          respond(sendResponse, { ok: true });
+          return;
+        }
+        const videoId = String((message as any).videoId ?? '').trim();
+        const bvid = String((message as any).bvid ?? '').trim();
+        const currentTimeSec = Number((message as any).currentTimeSec ?? 0);
+        const durationSec = (message as any).durationSec;
+        const playing = (message as any).playing;
+        const updatedAtMs = Number((message as any).updatedAtMs ?? Date.now());
+        if (!videoId || !bvid || !Number.isFinite(currentTimeSec)) {
+          respond(sendResponse, { ok: true });
+          return;
+        }
+
+        const state: PlayerTimeState = {
+          videoId,
+          bvid,
+          tabId,
+          currentTimeSec: Math.max(0, currentTimeSec),
+          durationSec: typeof durationSec === 'number' && Number.isFinite(durationSec) && durationSec > 0 ? durationSec : undefined,
+          playing: typeof playing === 'boolean' ? playing : undefined,
+          updatedAtMs
+        };
+        playerStates.set(videoId, state);
+        broadcastPlayerTime(videoId, state);
+        respond(sendResponse, { ok: true });
+        return;
+      }
+      case 'SEEK_VIDEO': {
+        const videoId = String((message as any).videoId ?? '').trim();
+        const timeSec = Math.max(0, Number((message as any).timeSec ?? 0));
+        if (!videoId || !Number.isFinite(timeSec)) {
+          respond(sendResponse, { ok: false, error: '参数无效' });
+          return;
+        }
+
+        const known = playerStates.get(videoId);
+        const bvid = known?.bvid ?? String(videoId.split('_')[0] ?? '').trim();
+        const tabId = known?.tabId ?? (await resolveTargetTabId(sender, bvid));
+        if (!tabId) {
+          respond(sendResponse, { ok: false, error: '未找到目标 B站视频页 tab' });
+          return;
+        }
+
+        chrome.tabs.sendMessage(tabId, { type: 'SEEK_TO', videoId, timeSec }).catch(() => {});
         respond(sendResponse, { ok: true });
         return;
       }

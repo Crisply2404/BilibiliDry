@@ -30,7 +30,11 @@ export type BackgroundRequest =
   | { type: 'CANCEL_ANALYSIS'; videoId: string }
   | { type: 'EXPORT_MARKDOWN'; videoId: string }
   | { type: 'OPEN_DASHBOARD'; videoId: string }
-  | { type: 'SEARCH_IN_VIDEO'; videoId: string; query: string; topK: number };
+  | { type: 'SEARCH_IN_VIDEO'; videoId: string; query: string; topK: number }
+  // Player sync (content-script -> background -> dashboard)
+  | { type: 'PLAYER_TIME_UPDATE'; videoId: string; bvid: string; currentTimeSec: number; durationSec?: number; playing?: boolean; updatedAtMs?: number }
+  // Dashboard -> background -> content-script
+  | { type: 'SEEK_VIDEO'; videoId: string; timeSec: number };
 
 export type BackgroundResponse =
   | { ok: true; data?: any }
@@ -40,7 +44,8 @@ export type BackgroundPush =
   | { type: 'ANALYSIS_UPDATE'; videoId: string; progress: number; segments?: Segment[] }
   | { type: 'ANALYSIS_ERROR'; videoId: string; error: string }
   | { type: 'ANALYSIS_DONE'; videoId: string }
-  | { type: 'REFLECTION_UPDATE'; videoId: string; progress: number; completed: number; total: number; segments?: Segment[] };
+  | { type: 'REFLECTION_UPDATE'; videoId: string; progress: number; completed: number; total: number; segments?: Segment[] }
+  | { type: 'SEEK_TO'; videoId: string; timeSec: number };
 
 export interface VideoContext {
   videoId: string;

@@ -1,11 +1,93 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DashboardView from '../../components/DashboardView';
-import type { AnalysisResult, AnalysisRun, Segment } from '../../types';
+import type { AnalysisResult, AnalysisRun, LogicBlock, Segment } from '../../types';
+import { LogicType } from '../../types';
 
-type VideoRecord = { videoId: string; title: string; durationSec: number; lastAnalyzedAt?: string };
+type VideoRecord = {
+  videoId: string;
+  bvid: string;
+  cid: number;
+  page?: number;
+  title: string;
+  durationSec: number;
+  lastAnalyzedAt?: string;
+};
 
 function getVideoId(): string {
   return decodeURIComponent((location.hash || '').replace(/^#/, ''));
+}
+
+function buildLogicBlocksV0(params: { segments: Segment[]; totalDuration: number }): LogicBlock[] {
+  const dry = params.segments.filter((s) => s.type === 'DRY');
+  if (dry.length === 0) return [];
+
+  const byTime = dry.slice().sort((a, b) => a.startTime - b.startTime);
+  const pickClosest = (target: number): Segment => {
+    let best = byTime[0];
+    let bestDist = Math.abs(Number(best.startTime) - target);
+    for (const s of byTime) {
+      const dist = Math.abs(Number(s.startTime) - target);
+      if (dist < bestDist) {
+        best = s;
+        bestDist = dist;
+      }
+    }
+    return best;
+  };
+
+  const byConfidence = dry.slice().sort((a, b) => (Number(b.confidence) || 0) - (Number(a.confidence) || 0));
+
+  const used = new Set<string>();
+  const takeUnique = (candidate: Segment, fallbackList: Segment[]): Segment => {
+    if (!used.has(candidate.id)) {
+      used.add(candidate.id);
+      return candidate;
+    }
+    for (const s of fallbackList) {
+      if (!used.has(s.id)) {
+        used.add(s.id);
+        return s;
+      }
+    }
+    return candidate;
+  };
+
+  const total = Number(params.totalDuration) || 0;
+  const background = takeUnique(byTime[0], byTime);
+  const problem = takeUnique(pickClosest(Math.max(0, total * 0.25)), byTime);
+  const solution = takeUnique(byConfidence[0], byConfidence);
+  const caseSeg = takeUnique(pickClosest(Math.max(0, total * 0.75)), byTime.slice().reverse());
+
+  return [
+    {
+      id: `v0_background_${background.id}`,
+      type: LogicType.BACKGROUND,
+      title: '背景与前置',
+      description: background.summary,
+      relatedSegments: [background.id]
+    },
+    {
+      id: `v0_problem_${problem.id}`,
+      type: LogicType.PROBLEM,
+      title: '核心问题',
+      description: problem.summary,
+      relatedSegments: [problem.id]
+    },
+    {
+      id: `v0_solution_${solution.id}`,
+      type: LogicType.SOLUTION,
+      title: '关键结论 / 方法',
+      description: solution.summary,
+      relatedSegments: [solution.id]
+    },
+    {
+      id: `v0_case_${caseSeg.id}`,
+      type: LogicType.CASE,
+      title: '例子 / 案例',
+      description: caseSeg.summary,
+      relatedSegments: [caseSeg.id]
+    }
+  ];
 }
 
 function buildAnalysisResult(video: VideoRecord, segments: Segment[]): AnalysisResult {
@@ -24,7 +106,7 @@ function buildAnalysisResult(video: VideoRecord, segments: Segment[]): AnalysisR
     processedAt: video.lastAnalyzedAt ?? new Date().toISOString(),
     overallSummary: dry ? `本视频干货要点：\n${dry}` : '暂无摘要（请先分析）。',
     segments,
-    logicBlocks: []
+    logicBlocks: buildLogicBlocksV0({ segments, totalDuration: video.durationSec })
   };
 }
 
@@ -131,7 +213,7 @@ const DashboardApp: React.FC = () => {
     );
   }
 
-  return <DashboardView data={data} runs={runs} developerMode={developerMode} onBack={() => window.close()} />;
+  return <DashboardView data={data} runs={runs} video={video ?? undefined} developerMode={developerMode} onBack={() => window.close()} />;
 };
 
 export default DashboardApp;

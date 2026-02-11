@@ -1,5 +1,5 @@
 import React, { useCallback, useRef } from 'react';
-import { Segment, ContentType } from '../types';
+import { Segment, ContentType, type WaterReasonType } from '../types';
 
 interface HeatmapBarProps {
   segments: Segment[];
@@ -17,6 +17,23 @@ const HeatmapBar: React.FC<HeatmapBarProps> = ({
   interactive = true 
 }) => {
   const draggingRef = useRef(false);
+
+  const waterReasonLabelZh = useCallback((t?: WaterReasonType): string => {
+    switch (t) {
+      case 'REPEAT':
+        return '重复';
+      case 'AD':
+        return '广告';
+      case 'NO_NEW_INFO':
+        return '无信息增量';
+      case 'SMALLTALK':
+        return '寒暄';
+      case 'OFFTOPIC':
+        return '跑题';
+      default:
+        return '';
+    }
+  }, []);
 
   const seekFromClientX = useCallback(
     (el: HTMLDivElement, clientX: number) => {
@@ -82,7 +99,12 @@ const HeatmapBar: React.FC<HeatmapBarProps> = ({
               title={
                 segment.type === ContentType.DRY
                   ? `干货: ${segment.summary}`
-                  : `注水${segment.waterReasonType ? `（${segment.waterReasonType}）` : ''}: ${segment.waterReasonText || segment.summary}`
+                  : (() => {
+                      const label = waterReasonLabelZh(segment.waterReasonType);
+                      const tag = label ? `（${label}）` : '';
+                      const detail = segment.waterReasonText || segment.summary;
+                      return `注水${tag}: ${detail}`;
+                    })()
               }
             />
           );
