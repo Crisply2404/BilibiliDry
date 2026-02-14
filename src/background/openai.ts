@@ -53,18 +53,48 @@ function normalizeBaseUrl(baseUrl: string): string {
 }
 
 async function postJson<T>(url: string, apiKey: string, body: unknown, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(body),
-    signal
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`OpenAI API 失败: ${res.status} ${text}`);
-  return JSON.parse(text) as T;
+  const timeoutMs = 5 * 60 * 1000;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = globalThis.setTimeout(() => {
+    timedOut = true;
+    try {
+      controller.abort();
+    } catch {
+      // ignore
+    }
+  }, timeoutMs);
+
+  const onAbort = () => {
+    try {
+      controller.abort();
+    } catch {
+      // ignore
+    }
+  };
+
+  try {
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`OpenAI API 失败: ${res.status} ${text}`);
+    return JSON.parse(text) as T;
+  } catch (err: any) {
+    if (timedOut) throw new Error(`OpenAI API 失败: 请求超时（${Math.round(timeoutMs / 1000)}s）`);
+    if (signal?.aborted) throw new Error('OpenAI API 失败: 请求已取消');
+    throw err;
+  } finally {
+    globalThis.clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onAbort);
+  }
 }
 
 function tryParseJsonObject(text: string): any {

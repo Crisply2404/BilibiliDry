@@ -11,6 +11,8 @@ interface DashboardViewProps {
   runs?: AnalysisRun[];
   video?: { bvid: string; page?: number; videoId: string };
   developerMode?: boolean;
+  benchmark?: { running: boolean; progress: number; mode?: 'cascade' | 'strong_only'; error?: string };
+  onRunBenchmark?: () => void;
   onBack: () => void;
 }
 
@@ -42,7 +44,7 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
-const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, video, developerMode, onBack }) => {
+const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, video, developerMode, benchmark, onRunBenchmark, onBack }) => {
   const [playerBaseSec, setPlayerBaseSec] = useState(0);
   const [playerTimeSec, setPlayerTimeSec] = useState(0);
   const [playerNonce, setPlayerNonce] = useState(0);
@@ -56,6 +58,23 @@ const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, video, develo
   const latestRun = Array.isArray(runs) && runs.length > 0 ? runs[0] : null;
   const showDeveloperPanels = Boolean(developerMode);
   const prevRun = Array.isArray(runs) && runs.length > 1 ? runs[1] : null;
+  const benchmarkRunning = Boolean(benchmark?.running);
+  const benchmarkProgress = Math.max(0, Math.min(1, Number(benchmark?.progress) || 0));
+  const benchmarkModeLabel = benchmark?.mode === 'cascade' ? 'cheap+strong' : benchmark?.mode === 'strong_only' ? '只用 strong' : '对照组';
+  const benchmarkPct = benchmarkProgress * 100;
+  const benchmarkPctLabel =
+    benchmarkPct <= 0
+      ? '0%'
+      : benchmarkPct < 0.1
+        ? '<0.1%'
+        : benchmarkPct < 10
+          ? `${benchmarkPct.toFixed(1)}%`
+        : `${Math.round(benchmarkPct)}%`;
+
+  // When we have fresh external updates from the real B站 <video>, prefer them and
+  // stop the local "guessing clock" to avoid sawtooth jumps.
+  const useExternalTime = progressSync && externalSyncAgeMs !== null && externalSyncAgeMs < 1500;
+  const useLocalClock = progressSync && !useExternalTime;
 
   const summarizeStage = (run: AnalysisRun | null, stage: 'cheap' | 'strong') => {
     const list = (run?.metrics ?? []).filter((m) => m.stage === stage);
@@ -164,7 +183,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, video, develo
   }, [progressSync]);
 
   useEffect(() => {
-    if (!progressSync) return;
+    if (!useLocalClock) return;
     lastTickMsRef.current = Date.now();
     const id = window.setInterval(() => {
       const now = Date.now();
@@ -176,7 +195,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, video, develo
       });
     }, 250);
     return () => window.clearInterval(id);
-  }, [data.totalDuration, progressSync]);
+  }, [data.totalDuration, useLocalClock]);
 
   const handleBlockClick = (block: LogicBlock) => {
       // Find the first segment related to this block (simplified logic)
@@ -390,15 +409,45 @@ const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, video, develo
             {showDeveloperPanels && latestRun && (
               <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs text-gray-700">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="font-semibold">Model Cascade 指标（latest vs prev）</div>
+                  <div className="font-semibold flex items-center gap-2">
+                    Model Cascade 指标（latest vs prev）
+                    {onRunBenchmark ? (
+                      <button
+                        className={`ml-2 rounded-md px-2 py-1 text-[11px] font-semibold border ${
+                          benchmarkRunning
+                            ? 'bg-gray-200 text-gray-500 border-gray-200 cursor-not-allowed'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                        }`}
+                        onClick={() => {
+                          if (benchmarkRunning) return;
+                          onRunBenchmark();
+                        }}
+                        disabled={benchmarkRunning}
+                        title="会额外调用一次 LLM（对照组），只写 runs，不覆盖你的 segments。"
+                      >
+                        {benchmarkRunning ? `对照实验中 ${benchmarkPctLabel}` : '跑对照组（自动）'}
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="font-mono text-[11px] text-gray-500">
                     {new Date(latestRun.startedAt).toLocaleString()}
                   </div>
                 </div>
-                <div className="mt-2 grid grid-cols-1 gap-2">
-                  <div className="rounded-md bg-white p-2 border border-gray-100">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-semibold text-gray-800">latest</div>
+                {benchmark?.error ? (
+                  <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-700">
+                    对照实验失败：{benchmark.error}
+                  </div>
+                ) : null}
+                {benchmarkRunning ? (
+                  <div className="mt-2 text-[11px] text-gray-600">
+                    当前正在跑：{benchmarkModeLabel}（跑完后这里会自动刷新对比）
+                    {benchmark?.message ? `｜${benchmark.message}` : ''}
+                  </div>
+                ) : null}
+                  <div className="mt-2 grid grid-cols-1 gap-2">
+                    <div className="rounded-md bg-white p-2 border border-gray-100">
+                      <div className="flex items-center justify-between gap-2">
+                      <div className="font-semibold text-gray-800">{latestRun?.finishedAt ? 'latest' : 'latest（未完成）'}</div>
                       {latestRun.cheapModel || latestRun.strongModel ? (
                         <div className="text-[11px] text-gray-500">
                           {latestRun.cheapModel ? `cheap=${latestRun.cheapModel}` : ''}
@@ -412,6 +461,11 @@ const DashboardView: React.FC<DashboardViewProps> = ({ data, runs, video, develo
                     <div className="mt-1 font-mono text-[11px] text-gray-600">
                       strong: calls={summarizeStage(latestRun, 'strong').calls} ms={summarizeStage(latestRun, 'strong').totalMs} req={summarizeStage(latestRun, 'strong').reqChars} resp={summarizeStage(latestRun, 'strong').respChars}
                     </div>
+                    {!latestRun?.finishedAt ? (
+                      <div className="mt-1 text-[11px] text-amber-700">
+                        该 run 可能还在跑（或被浏览器挂起），指标会暂时是 0；如果卡很久不动，建议回到视频页取消后重试。
+                      </div>
+                    ) : null}
                     {latestRun.quality ? (
                       <div className="mt-1 text-[11px] text-gray-600">
                         质量：pass={latestRun.quality.pass} weak={latestRun.quality.weak} fail={latestRun.quality.fail} repaired={latestRun.quality.repaired}

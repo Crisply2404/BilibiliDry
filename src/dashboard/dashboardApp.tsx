@@ -13,6 +13,14 @@ type VideoRecord = {
   lastAnalyzedAt?: string;
 };
 
+type BenchmarkState = {
+  running: boolean;
+  progress: number;
+  mode?: 'cascade' | 'strong_only';
+  message?: string;
+  error?: string;
+};
+
 function getVideoId(): string {
   return decodeURIComponent((location.hash || '').replace(/^#/, ''));
 }
@@ -116,6 +124,7 @@ const DashboardApp: React.FC = () => {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [runs, setRuns] = useState<AnalysisRun[]>([]);
   const [developerMode, setDeveloperMode] = useState(false);
+  const [benchmark, setBenchmark] = useState<BenchmarkState>({ running: false, progress: 0 });
   const [error, setError] = useState<string>('');
   const autoRefreshRef = useRef<{ videoId: string; tries: number; timer: number | null } | null>(null);
 
@@ -157,6 +166,68 @@ const DashboardApp: React.FC = () => {
   useEffect(() => {
     refresh().catch((e) => setError(String(e?.message ?? e)));
   }, [refresh]);
+
+  useEffect(() => {
+    setBenchmark({ running: false, progress: 0 });
+  }, [videoId]);
+
+  useEffect(() => {
+    const handler = (msg: any) => {
+      if (!msg) return;
+      if (String(msg.videoId ?? '') !== String(videoId ?? '')) return;
+
+      if (msg.type === 'BENCHMARK_UPDATE') {
+        setBenchmark({
+          running: true,
+          progress: Number.isFinite(Number(msg.progress)) ? Number(msg.progress) : 0,
+          mode: msg.mode === 'cascade' || msg.mode === 'strong_only' ? msg.mode : undefined,
+          message: typeof msg.message === 'string' ? msg.message : '',
+          error: ''
+        });
+        return;
+      }
+
+      if (msg.type === 'BENCHMARK_DONE') {
+        setBenchmark({
+          running: false,
+          progress: 1,
+          mode: msg.mode === 'cascade' || msg.mode === 'strong_only' ? msg.mode : undefined,
+          message: '对照实验完成',
+          error: ''
+        });
+        refresh().catch(() => {});
+        return;
+      }
+
+      if (msg.type === 'BENCHMARK_ERROR') {
+        setBenchmark({
+          running: false,
+          progress: 0,
+          mode: msg.mode === 'cascade' || msg.mode === 'strong_only' ? msg.mode : undefined,
+          message: '',
+          error: String(msg.error ?? '对照实验失败')
+        });
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(handler);
+    return () => chrome.runtime.onMessage.removeListener(handler);
+  }, [refresh, videoId]);
+
+  const runBenchmark = useCallback(async () => {
+    if (!videoId) return;
+    setBenchmark({ running: true, progress: 0, error: '' });
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'RUN_BENCHMARK_ALTERNATIVE', videoId });
+      if (!resp?.ok) {
+        setBenchmark({ running: false, progress: 0, error: String(resp?.error ?? '对照实验启动失败') });
+      } else {
+        setBenchmark((prev) => ({ ...prev, running: true, mode: resp?.data?.mode }));
+      }
+    } catch (e: any) {
+      setBenchmark({ running: false, progress: 0, error: String(e?.message ?? e ?? '对照实验启动失败') });
+    }
+  }, [videoId]);
 
   useEffect(() => {
     if (!developerMode) return;
@@ -213,7 +284,17 @@ const DashboardApp: React.FC = () => {
     );
   }
 
-  return <DashboardView data={data} runs={runs} video={video ?? undefined} developerMode={developerMode} onBack={() => window.close()} />;
+  return (
+    <DashboardView
+      data={data}
+      runs={runs}
+      video={video ?? undefined}
+      developerMode={developerMode}
+      benchmark={benchmark}
+      onRunBenchmark={runBenchmark}
+      onBack={() => window.close()}
+    />
+  );
 };
 
 export default DashboardApp;

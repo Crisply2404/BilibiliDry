@@ -34,14 +34,16 @@ export type BackgroundRequest =
   // Player sync (content-script -> background -> dashboard)
   | { type: 'PLAYER_TIME_UPDATE'; videoId: string; bvid: string; currentTimeSec: number; durationSec?: number; playing?: boolean; updatedAtMs?: number }
   // Dashboard -> background -> content-script
-  | { type: 'SEEK_VIDEO'; videoId: string; timeSec: number };
+  | { type: 'SEEK_VIDEO'; videoId: string; timeSec: number }
+  // Dev: run benchmark for the alternative mode (cascade vs strong-only) and store it as a run.
+  | { type: 'RUN_BENCHMARK_ALTERNATIVE'; videoId: string };
 
 export type BackgroundResponse =
   | { ok: true; data?: any }
   | { ok: false; error: string };
 
 export type BackgroundPush =
-  | { type: 'ANALYSIS_UPDATE'; videoId: string; progress: number; segments?: Segment[] }
+  | { type: 'ANALYSIS_UPDATE'; videoId: string; progress: number; segments?: Segment[]; note?: string }
   | { type: 'ANALYSIS_ERROR'; videoId: string; error: string }
   | { type: 'ANALYSIS_DONE'; videoId: string }
   | { type: 'REFLECTION_UPDATE'; videoId: string; progress: number; completed: number; total: number; segments?: Segment[] }

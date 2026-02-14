@@ -7,6 +7,7 @@ import { buildMarkdown } from './markdown';
 import { searchInVideoKeyword, searchInVideoSemantic } from './search';
 import { getActiveLlm } from './llm';
 import { testConnectionWithOpenAI } from './openai';
+import { runModelCascadeBenchmark } from './benchmark';
 
 type PlayerTimeState = {
   videoId: string;
@@ -20,6 +21,8 @@ type PlayerTimeState = {
 
 const playerStates = new Map<string, PlayerTimeState>();
 const playerSubscribers = new Map<string, Set<chrome.runtime.Port>>();
+const benchmarkJobs = new Map<string, Promise<void>>();
+const keepAlivePorts = new Set<chrome.runtime.Port>();
 
 function redactSecrets(text: string): string {
   return (
@@ -54,6 +57,37 @@ function broadcastPlayerTime(videoId: string, state: PlayerTimeState) {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'ANALYSIS_KEEPALIVE') {
+    keepAlivePorts.add(port);
+    const tabId = port.sender?.tab?.id ?? null;
+
+    const onMessage = (msg: any) => {
+      // Intentionally no-op: the existence of this Port + periodic PING keeps the MV3 service worker alive.
+      // (Helps avoid long analysis jobs being suspended mid-flight.)
+      void msg;
+    };
+
+    port.onMessage.addListener(onMessage);
+    port.onDisconnect.addListener(() => {
+      keepAlivePorts.delete(port);
+      try {
+        port.onMessage.removeListener(onMessage);
+      } catch {
+        // ignore
+      }
+
+      // If the user refreshed/closed the tab, cancel any analysis job bound to that tab.
+      if (tabId) {
+        for (const [key, entry] of analysisJobs.entries()) {
+          if (entry.tabId !== tabId) continue;
+          entry.job.cancel();
+          analysisJobs.delete(key);
+        }
+      }
+    });
+    return;
+  }
+
   if (port.name !== 'DASHBOARD_PLAYER_SYNC') return;
 
   let subscribedVideoId: string | null = null;
@@ -229,6 +263,69 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest & { [k: string]
 
         chrome.tabs.sendMessage(tabId, { type: 'SEEK_TO', videoId, timeSec }).catch(() => {});
         respond(sendResponse, { ok: true });
+        return;
+      }
+      case 'RUN_BENCHMARK_ALTERNATIVE': {
+        const videoId = String((message as any).videoId ?? '').trim();
+        if (!videoId) {
+          respond(sendResponse, { ok: false, error: '缺少 videoId' });
+          return;
+        }
+        if (benchmarkJobs.has(videoId)) {
+          respond(sendResponse, { ok: false, error: '对照实验正在运行中，请稍后再试' });
+          return;
+        }
+
+        const config = await getConfig();
+        if (!config.developerMode) {
+          respond(sendResponse, { ok: false, error: '仅开发者模式可用（请在设置页开启）' });
+          return;
+        }
+
+        const video = await getVideo(videoId);
+        if (!video) {
+          respond(sendResponse, { ok: false, error: '未找到视频记录，请先分析一次' });
+          return;
+        }
+
+        const runs = await listAnalysisRuns(videoId);
+        const latest = runs[0];
+        if (!latest) {
+          respond(sendResponse, { ok: false, error: '未找到分析 runs，请先分析一次' });
+          return;
+        }
+
+        const mode = latest.cascadeEnabled ? ('strong_only' as const) : ('cascade' as const);
+        if (mode === 'cascade') {
+          const cheapModel = String(config.cascade?.cheapModel ?? '').trim();
+          const strongModel = String(config.cascade?.strongModel ?? config.openaiModel ?? '').trim();
+          if (!cheapModel || !strongModel) {
+            respond(sendResponse, { ok: false, error: '未配置 cheap/strong model，无法跑 cheap+strong 对照组' });
+            return;
+          }
+        }
+
+        const emit = (msg: any) => {
+          chrome.runtime.sendMessage(msg).catch(() => {});
+        };
+
+        const controller = new AbortController();
+        const job = runModelCascadeBenchmark({ video, mode, emit, signal: controller.signal })
+          .then(() => {})
+          .catch((err: any) => {
+            emit({
+              type: 'BENCHMARK_ERROR',
+              videoId,
+              mode,
+              error: redactSecrets(String(err?.message ?? err))
+            });
+          })
+          .finally(() => {
+            benchmarkJobs.delete(videoId);
+          });
+
+        benchmarkJobs.set(videoId, job);
+        respond(sendResponse, { ok: true, data: { mode } });
         return;
       }
       case 'SEARCH_IN_VIDEO': {

@@ -344,84 +344,107 @@ export function startIncrementalAnalysis(params: {
         });
       }
 
-      // Model Cascade (strong stage): refine TopK DRY summaries before we announce ANALYSIS_DONE,
-      // so progress=100% matches what users see.
-      if (cascadeEnabled && baseLlm.source === 'openai') {
-        try {
-          if (controller.signal.aborted) return;
-          const baseUrl = String(config.openaiBaseUrl ?? '').trim();
-          const apiKey = String(config.openaiApiKey ?? '').trim();
-          const model = (strongModel || String(config.openaiModel ?? '').trim()).trim();
-          if (baseUrl && apiKey && model) {
-            const all = await listSegments(videoId);
-            const candidates = all
-              .filter((s) => s.source === llmCheap.source && s.type === ContentType.DRY)
-              .sort((a, b) => b.confidence - a.confidence)
-              .slice(0, strongTopK);
+      // Model Cascade (post-process): make the "strong refine" stage explicit,
+      // so users don't feel the progress bar is "stuck at ~86%" with no clue.
+      if (cascadeEnabled) {
+        params.push({
+          type: 'ANALYSIS_UPDATE',
+          videoId,
+          progress: clamp(completed / totalSteps, 0, 1),
+          note: '正在做强模型精炼（可能需要几分钟）'
+        });
 
-            if (candidates.length > 0) {
-              const input = candidates.map((s) => ({
-                id: s.id,
-                startTime: s.startTime,
-                endTime: s.endTime,
-                summary: s.summary,
-                evidence: buildEvidenceLines({
-                  lines,
+        if (baseLlm.source === 'openai') {
+          try {
+            if (controller.signal.aborted) return;
+            const baseUrl = String(config.openaiBaseUrl ?? '').trim();
+            const apiKey = String(config.openaiApiKey ?? '').trim();
+            const model = (strongModel || String(config.openaiModel ?? '').trim()).trim();
+            if (baseUrl && apiKey && model) {
+              const all = await listSegments(videoId);
+              const candidates = all
+                .filter((s) => s.source === llmCheap.source && s.type === ContentType.DRY)
+                .sort((a, b) => b.confidence - a.confidence)
+                .slice(0, strongTopK);
+
+              if (candidates.length > 0) {
+                const input = candidates.map((s) => ({
+                  id: s.id,
                   startTime: s.startTime,
                   endTime: s.endTime,
-                  padSec: 10,
-                  maxLines: 24,
-                  maxChars: 1400,
-                  perLineMaxChars: 100
-                })
-              }));
-
-              const refineResp = await timed({
-                stage: 'strong',
-                kind: 'dry_refine',
-                modelTag: llmStrong.modelTag,
-                requestText: JSON.stringify(input),
-                fn: () =>
-                  refineDrySegmentsWithOpenAI({
-                    baseUrl,
-                    apiKey,
-                    model,
-                    title: view.title,
-                    segments: input,
-                    signal: controller.signal
-                  })
-              });
-
-              const byId = new Map(refineResp.items.map((x) => [x.id, x.summary] as const));
-              const updated: SegmentRecord[] = [];
-              for (const seg of candidates) {
-                const nextSummary = byId.get(seg.id);
-                if (!nextSummary || nextSummary === seg.summary) continue;
-                updated.push({ ...seg, summary: nextSummary });
-              }
-              if (updated.length > 0) {
-                await putSegments(updated);
-                params.push({
-                  type: 'ANALYSIS_UPDATE',
-                  videoId,
-                  progress: 1,
-                  segments: updated.map((s) => ({
-                    id: s.id,
+                  summary: s.summary,
+                  evidence: buildEvidenceLines({
+                    lines,
                     startTime: s.startTime,
                     endTime: s.endTime,
-                    type: s.type,
-                    confidence: s.confidence,
-                    summary: s.summary,
-                    waterReasonType: s.waterReasonType,
-                    waterReasonText: s.waterReasonText
-                  }))
+                    padSec: 10,
+                    maxLines: 24,
+                    maxChars: 1400,
+                    perLineMaxChars: 100
+                  })
+                }));
+
+                const refineResp = await timed({
+                  stage: 'strong',
+                  kind: 'dry_refine',
+                  modelTag: llmStrong.modelTag,
+                  requestText: JSON.stringify(input),
+                  fn: () =>
+                    refineDrySegmentsWithOpenAI({
+                      baseUrl,
+                      apiKey,
+                      model,
+                      title: view.title,
+                      segments: input,
+                      signal: controller.signal
+                    })
                 });
+
+                const byId = new Map(refineResp.items.map((x) => [x.id, x.summary] as const));
+                const updated: SegmentRecord[] = [];
+                for (const seg of candidates) {
+                  const nextSummary = byId.get(seg.id);
+                  if (!nextSummary || nextSummary === seg.summary) continue;
+                  updated.push({ ...seg, summary: nextSummary });
+                }
+                if (updated.length > 0) {
+                  await putSegments(updated);
+                  params.push({
+                    type: 'ANALYSIS_UPDATE',
+                    videoId,
+                    progress: clamp(completed / totalSteps, 0, 1),
+                    segments: updated.map((s) => ({
+                      id: s.id,
+                      startTime: s.startTime,
+                      endTime: s.endTime,
+                      type: s.type,
+                      confidence: s.confidence,
+                      summary: s.summary,
+                      waterReasonType: s.waterReasonType,
+                      waterReasonText: s.waterReasonText
+                    }))
+                  });
+                }
               }
             }
+          } catch {
+            // best-effort: refine stage should never block the main result
+            params.push({
+              type: 'ANALYSIS_UPDATE',
+              videoId,
+              progress: clamp(completed / totalSteps, 0, 1),
+              note: '强模型精炼失败，继续返回结果'
+            });
           }
-        } catch {
-          // best-effort: refine stage should never block the main result
         }
+
+        completed += 1;
+        params.push({
+          type: 'ANALYSIS_UPDATE',
+          videoId,
+          progress: clamp(completed / totalSteps, 0, 1),
+          note: '精炼阶段结束'
+        });
       }
 
       params.push({ type: 'ANALYSIS_DONE', videoId });

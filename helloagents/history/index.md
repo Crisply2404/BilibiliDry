@@ -15,6 +15,7 @@
 | 202601311913 | reflection_gate_v1 | 功能 | ⚠️待验证 | `helloagents/history/2026-01/202601311913_reflection_gate_v1/` |
 | 202602020336 | model_cascade_and_explainable_water | 功能 | ⚠️待验证 | `helloagents/history/2026-02/202602020336_model_cascade_and_explainable_water/` |
 | 202602102309 | auto_skip_and_dev_compare | 功能 | ⚠️待验证 | `helloagents/history/2026-02/202602102309_auto_skip_and_dev_compare/` |
+| 202602110930 | model_cascade_benchmark_button | 功能 | ⚠️待验证 | `helloagents/history/2026-02/202602110930_model_cascade_benchmark_button/` |
 
 ---
 
@@ -32,3 +33,4 @@
 
 - [202602020336_model_cascade_and_explainable_water](2026-02/202602020336_model_cascade_and_explainable_water/) - Model Cascade（cheap→strong）+ 可解释注水（待验证）
 - [202602102309_auto_skip_and_dev_compare](2026-02/202602102309_auto_skip_and_dev_compare/) - 自动跳过注水 v2 + Dashboard 可用性完善 + 开发者对比视图（待验证）
+- [202602110930_model_cascade_benchmark_button](2026-02/202602110930_model_cascade_benchmark_button/) - 开发者模式：一键跑对照组（cheap+strong vs 只用 strong）（待验证）

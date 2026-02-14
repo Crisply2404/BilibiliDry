@@ -269,12 +269,84 @@ const OverlayApp: React.FC = () => {
   const [previousSegments, setPreviousSegments] = useState<Segment[] | null>(null);
   const [segmentsView, setSegmentsView] = useState<'current' | 'previous'>('current');
   const [progress, setProgress] = useState<number>(0);
+  const [analysisNote, setAnalysisNote] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState<boolean>(true);
   const [reflection, setReflection] = useState<{ progress: number; completed: number; total: number } | null>(null);
   const pendingSegmentsRef = useRef<Map<string, Segment>>(new Map());
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
+
+  const isAnalyzingRef = useRef(false);
+  useEffect(() => {
+    isAnalyzingRef.current = isAnalyzing;
+  }, [isAnalyzing]);
+
+  const analysisKeepAlivePortRef = useRef<chrome.runtime.Port | null>(null);
+  const analysisKeepAliveTimerRef = useRef<number | null>(null);
+  const lastAnalysisUpdateAtMsRef = useRef<number>(Date.now());
+
+  const stopAnalysisKeepAlive = useCallback(() => {
+    const timer = analysisKeepAliveTimerRef.current;
+    if (timer) {
+      window.clearInterval(timer);
+      analysisKeepAliveTimerRef.current = null;
+    }
+    const port = analysisKeepAlivePortRef.current;
+    analysisKeepAlivePortRef.current = null;
+    if (port) {
+      try {
+        port.disconnect();
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  const startAnalysisKeepAlive = useCallback(
+    (id: string) => {
+      stopAnalysisKeepAlive();
+      try {
+        const port = chrome.runtime.connect({ name: 'ANALYSIS_KEEPALIVE' });
+        analysisKeepAlivePortRef.current = port;
+        try {
+          port.postMessage({ type: 'HELLO', videoId: id });
+        } catch {
+          // ignore
+        }
+
+        port.onDisconnect.addListener(() => {
+          // If we intentionally stopped, `analysisKeepAlivePortRef` is already cleared.
+          if (analysisKeepAlivePortRef.current !== port) return;
+          analysisKeepAlivePortRef.current = null;
+          const timer = analysisKeepAliveTimerRef.current;
+          if (timer) {
+            window.clearInterval(timer);
+            analysisKeepAliveTimerRef.current = null;
+          }
+
+          // Unexpected disconnect usually means the background service worker got restarted/suspended.
+          if (isAnalyzingRef.current) {
+            setError('后台连接断开，分析可能被浏览器挂起了。请点击“重新分析”重试。');
+            setIsAnalyzing(false);
+            setAnalysisNote('');
+            setReflection(null);
+          }
+        });
+
+        analysisKeepAliveTimerRef.current = window.setInterval(() => {
+          try {
+            port.postMessage({ type: 'PING', videoId: id, ts: Date.now() });
+          } catch {
+            // ignore
+          }
+        }, 20_000);
+      } catch {
+        // ignore
+      }
+    },
+    [stopAnalysisKeepAlive]
+  );
 
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<SearchResultItem[]>([]);
@@ -404,20 +476,36 @@ const OverlayApp: React.FC = () => {
     return () => window.clearInterval(id);
   }, []);
 
+  const selectedVideoRef = useRef<HTMLVideoElement | null>(null);
+  const lastUserSeekAtMsRef = useRef<number>(0);
+
   const lastPlayerSyncRef = useRef<{ atMs: number; timeSec: number } | null>(null);
   useEffect(() => {
     const id = window.setInterval(() => {
       const idKey = String(videoId ?? '').trim();
       if (!idKey || !idKey.includes('_')) return;
       if (!bvid) return;
-      const video = getVideoElement();
+      let video = selectedVideoRef.current;
+      if (video && !document.contains(video)) video = null;
+      if (!video) {
+        video = getVideoElement();
+        selectedVideoRef.current = video;
+      }
       if (!video) return;
 
       const t = Number(video.currentTime || 0);
       if (!Number.isFinite(t)) return;
 
-      const now = Date.now();
       const last = lastPlayerSyncRef.current;
+      // Guard against accidentally reporting a wrong <video> element that sits at ~0s,
+      // which would make the dashboard progress "jump forward then snap back".
+      // Allow big backward jumps only when the user actually sought recently.
+      if (last && last.timeSec > 30 && t < 2) {
+        const recentlySeeked = Date.now() - (lastUserSeekAtMsRef.current || 0) < 2500;
+        if (!recentlySeeked) return;
+      }
+
+      const now = Date.now();
       if (last && now - last.atMs < 500 && Math.abs(t - last.timeSec) < 0.5) return;
       lastPlayerSyncRef.current = { atMs: now, timeSec: t };
 
@@ -451,6 +539,7 @@ const OverlayApp: React.FC = () => {
       const kind = meta && now - meta.atMs < 1200 ? meta.kind : 'unknown';
       lastSeekRef.current = null;
       if (kind === 'system') return;
+      lastUserSeekAtMsRef.current = now;
 
       const t = video.currentTime || 0;
       const seg = pickSegmentAtTime({
@@ -482,6 +571,7 @@ const OverlayApp: React.FC = () => {
         if (current && !document.contains(current)) {
           cleanup();
           current = null;
+          selectedVideoRef.current = null;
           cleanup = () => {};
         }
         return;
@@ -489,6 +579,7 @@ const OverlayApp: React.FC = () => {
       if (next === current) return;
       cleanup();
       current = next;
+      selectedVideoRef.current = next;
       cleanup = attach(next);
     };
 
@@ -681,16 +772,20 @@ const OverlayApp: React.FC = () => {
       }
       if (message.type === 'ANALYSIS_ERROR') {
         if (uiModeRef.current === 'closed') setUiMode('open');
+        stopAnalysisKeepAlive();
         setIsAnalyzing(false);
         setError(message.error);
+        setAnalysisNote('');
         setReflection(null);
         return;
       }
       if (message.type === 'ANALYSIS_UPDATE') {
         if (uiModeRef.current === 'closed') setUiMode('open');
+        lastAnalysisUpdateAtMsRef.current = Date.now();
         setIsAnalyzing(true);
         setError('');
         setProgress(message.progress);
+        setAnalysisNote(typeof (message as any).note === 'string' ? String((message as any).note) : '');
         if (Array.isArray(message.segments) && message.segments.length > 0) {
           for (const s of message.segments) pendingSegmentsRef.current.set(s.id, s);
         }
@@ -698,8 +793,10 @@ const OverlayApp: React.FC = () => {
       }
       if (message.type === 'ANALYSIS_DONE') {
         if (uiModeRef.current === 'closed') setUiMode('open');
+        stopAnalysisKeepAlive();
         setIsAnalyzing(false);
         setProgress(1);
+        setAnalysisNote('');
         const nextSegments = Array.from(pendingSegmentsRef.current.values());
         if (nextSegments.length > 0) {
           if (segmentsRef.current.length > 0) setPreviousSegments(segmentsRef.current);
@@ -712,6 +809,7 @@ const OverlayApp: React.FC = () => {
       }
       if (message.type === 'REFLECTION_UPDATE') {
         if (developerMode && uiModeRef.current === 'closed') setUiMode('open');
+        lastAnalysisUpdateAtMsRef.current = Date.now();
         setReflection({ progress: message.progress, completed: message.completed, total: message.total });
         if (Array.isArray(message.segments) && message.segments.length > 0) {
           setSegments((prev) => mergeSegments(prev, message.segments!));
@@ -722,17 +820,19 @@ const OverlayApp: React.FC = () => {
     };
     chrome.runtime.onMessage.addListener(handler as any);
     return () => chrome.runtime.onMessage.removeListener(handler as any);
-  }, [developerMode, mergeSegments, refreshState]);
+  }, [developerMode, mergeSegments, refreshState, stopAnalysisKeepAlive]);
 
   const startAnalysis = useCallback(async () => {
     if (!bvid) return;
     setError('');
+    setAnalysisNote('');
     if (segmentsRef.current.length > 0) setPreviousSegments(segmentsRef.current);
     setSegmentsView('current');
     pendingSegmentsRef.current = new Map();
     setIsAnalyzing(true);
     setProgress(0);
     setReflection(null);
+    lastAnalysisUpdateAtMsRef.current = Date.now();
     try {
       const currentPage = page || getPageFromUrl(window.location.href);
       const meta = getVideoMetaFromInitialState(currentPage) ?? (await fetchVideoMetaFromApi(bvid, currentPage));
@@ -751,6 +851,7 @@ const OverlayApp: React.FC = () => {
       setDurationSec(resolvedDurationSec);
       setVideoId(resolvedVideoId);
       currentVideoKeyRef.current = resolvedVideoId;
+      startAnalysisKeepAlive(resolvedVideoId);
       let captions: CaptionLine[] | undefined;
       try {
         const lines = await fetchCaptionsFromPage(resolvedMeta);
@@ -767,11 +868,31 @@ const OverlayApp: React.FC = () => {
         ...(captions ? { captions } : {})
       });
     } catch (e: any) {
+      stopAnalysisKeepAlive();
       setIsAnalyzing(false);
       setProgress(0);
       setError(String(e?.message ?? e));
     }
-  }, [bvid, page]);
+  }, [bvid, page, startAnalysisKeepAlive, stopAnalysisKeepAlive]);
+
+  // Anti-stall watchdog: if no progress update for a long time, stop waiting and suggest retry.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!isAnalyzingRef.current) return;
+      const idleMs = Date.now() - (lastAnalysisUpdateAtMsRef.current || 0);
+      const limitMs = 8 * 60 * 1000;
+      if (idleMs < limitMs) return;
+
+      stopAnalysisKeepAlive();
+      const id = videoId ?? bvid;
+      if (id) chrome.runtime.sendMessage({ type: 'CANCEL_ANALYSIS', videoId: id }).catch(() => {});
+      setIsAnalyzing(false);
+      setReflection(null);
+      setAnalysisNote('');
+      setError('分析长时间无进度，可能被浏览器挂起或网络卡住。已停止等待，请点击“重新分析”重试。');
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [bvid, stopAnalysisKeepAlive, videoId]);
 
   useEffect(() => {
     if (!autoAnalyzeOnOpen) return;
@@ -880,9 +1001,10 @@ const OverlayApp: React.FC = () => {
     const id = videoId ?? bvid;
     if (!id) return;
     await chrome.runtime.sendMessage({ type: 'CANCEL_ANALYSIS', videoId: id });
+    stopAnalysisKeepAlive();
     setIsAnalyzing(false);
     setProgress(0);
-  }, [bvid, videoId]);
+  }, [bvid, stopAnalysisKeepAlive, videoId]);
 
   const doExport = useCallback(async () => {
     const id = videoId ?? bvid;
@@ -1065,6 +1187,9 @@ const OverlayApp: React.FC = () => {
                   </div>
                   <div className="text-[10px] text-gray-400">注水类别过滤：可在设置页调整（重复/广告/无信息增量/寒暄/跑题）。</div>
                   <div className="text-[10px] text-gray-400">提示：你手动拖进注水段时，不会强制自动跳过。</div>
+                  {isAnalyzing && analysisNote ? (
+                    <div className="text-[11px] text-gray-600">{analysisNote}</div>
+                  ) : null}
                   {isAnalyzing && (
                     <button
                       className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50"
