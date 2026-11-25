@@ -1,185 +1,158 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { ContentType } from '../../types';
-import type { AnalysisRun, WaterReasonType } from '../../types';
+import type { Trace } from '../core/trace/tracer';
+import type { CaptionLine, Segment, VideoDigest } from '../core/types';
+import type { ChatTurnRecord, JobState, VideoRecord } from '../shared/protocol';
 
-export interface VideoRecord {
-  videoId: string; // `${bvid}_${cid}` (multi-part safe key)
-  bvid: string;
-  aid: number;
-  cid: number;
-  page?: number;
-  partTitle?: string;
-  title: string;
-  durationSec: number;
-  hasCC: boolean;
-  lastAnalyzedAt?: string;
-  analysisVersion?: string;
+export interface JobRecord extends JobState {
+  /** Checkpoint: segments of finished chunks, keyed by chunk index. */
+  done: Record<number, Segment[]>;
+  /** Analysis config the checkpoint was produced with; a resume is only valid under the same config. */
+  configKey: string;
 }
 
-export interface SegmentRecord {
-  id: string; // `${videoId}:${startTime}-${endTime}`
-  videoId: string;
-  startTime: number;
-  endTime: number;
-  type: ContentType;
-  confidence: number;
-  summary: string;
-  waterReasonType?: WaterReasonType;
-  waterReasonText?: string;
-  rawText?: string;
-  source: 'gemini' | 'openai' | 'heuristic';
-  verification?: {
-    verdict: 'pass' | 'weak' | 'fail';
-    alignmentScore: number;
-    reason: string;
-    evidence: string[];
-    checkedAt: string;
-    modelTag: string;
-    repairedFrom?: { startTime: number; endTime: number };
-    repairedAt?: string;
-  };
+interface Schema extends DBSchema {
+  videos: { key: string; value: VideoRecord; indexes: { byAdded: number } };
+  captions: { key: string; value: { videoId: string; lines: CaptionLine[] } };
+  segments: { key: string; value: { videoId: string; segments: Segment[] } };
+  digests: { key: string; value: { videoId: string; digest: VideoDigest } };
+  jobs: { key: string; value: JobRecord };
+  vectors: { key: string; value: { key: string; videoId: string; model: string; passageId: string; vector: number[] }; indexes: { byVideo: string } };
+  traces: { key: string; value: Trace; indexes: { byVideo: string; byStart: number } };
+  chats: { key: string; value: { videoId: string; turns: ChatTurnRecord[] } };
 }
 
-export interface EmbeddingRecord {
-  id: string; // same as segment id
-  videoId: string;
-  startTime: number;
-  vector: number[];
-  text: string;
-  model: string;
-}
+let dbPromise: Promise<IDBPDatabase<Schema>> | null = null;
 
-export type AnalysisRunRecord = AnalysisRun;
-
-interface BiliDrySchema extends DBSchema {
-  videos: {
-    key: string;
-    value: VideoRecord;
-    indexes: { 'by-lastAnalyzedAt': string };
-  };
-  segments: {
-    key: string;
-    value: SegmentRecord;
-    indexes: { 'by-videoId': string; 'by-videoId-startTime': [string, number] };
-  };
-  embeddings: {
-    key: string;
-    value: EmbeddingRecord;
-    indexes: { 'by-videoId': string };
-  };
-  runs: {
-    key: string;
-    value: AnalysisRunRecord;
-    indexes: { 'by-videoId': string; 'by-videoId-startedAt': [string, string] };
-  };
-}
-
-let dbPromise: Promise<IDBPDatabase<BiliDrySchema>> | undefined;
-
-export function getDb(): Promise<IDBPDatabase<BiliDrySchema>> {
-  if (!dbPromise) {
-    dbPromise = openDB<BiliDrySchema>('bilibilidry', 2, {
-      upgrade(db, oldVersion) {
-        if (oldVersion < 1) {
-          const videos = db.createObjectStore('videos', { keyPath: 'videoId' });
-          videos.createIndex('by-lastAnalyzedAt', 'lastAnalyzedAt');
-
-          const segments = db.createObjectStore('segments', { keyPath: 'id' });
-          segments.createIndex('by-videoId', 'videoId');
-          segments.createIndex('by-videoId-startTime', ['videoId', 'startTime']);
-
-          const embeddings = db.createObjectStore('embeddings', { keyPath: 'id' });
-          embeddings.createIndex('by-videoId', 'videoId');
-        }
-
-        if (oldVersion < 2) {
-          const runs = db.createObjectStore('runs', { keyPath: 'runId' });
-          runs.createIndex('by-videoId', 'videoId');
-          runs.createIndex('by-videoId-startedAt', ['videoId', 'startedAt']);
-        }
-      }
-    });
-  }
+export function db(): Promise<IDBPDatabase<Schema>> {
+  dbPromise ??= openDB<Schema>('bilibilidry', 1, {
+    upgrade(d) {
+      d.createObjectStore('videos', { keyPath: 'videoId' }).createIndex('byAdded', 'addedAt');
+      d.createObjectStore('captions', { keyPath: 'videoId' });
+      d.createObjectStore('segments', { keyPath: 'videoId' });
+      d.createObjectStore('digests', { keyPath: 'videoId' });
+      d.createObjectStore('jobs', { keyPath: 'videoId' });
+      d.createObjectStore('vectors', { keyPath: 'key' }).createIndex('byVideo', 'videoId');
+      const t = d.createObjectStore('traces', { keyPath: 'id' });
+      t.createIndex('byVideo', 'videoId');
+      t.createIndex('byStart', 'startedAt');
+      d.createObjectStore('chats', { keyPath: 'videoId' });
+    }
+  });
   return dbPromise;
 }
 
-export async function clearAllData(): Promise<void> {
-  const db = await getDb();
-  const tx = db.transaction(['videos', 'segments', 'embeddings', 'runs'], 'readwrite');
-  await Promise.all([
-    tx.objectStore('videos').clear(),
-    tx.objectStore('segments').clear(),
-    tx.objectStore('embeddings').clear(),
-    tx.objectStore('runs').clear()
-  ]);
-  await tx.done;
+export async function getVideo(videoId: string) {
+  return (await db()).get('videos', videoId);
 }
-
-export async function upsertVideo(video: VideoRecord): Promise<void> {
-  const db = await getDb();
-  await db.put('videos', video);
+export async function putVideo(v: VideoRecord) {
+  await (await db()).put('videos', v);
 }
-
-export async function getVideo(videoId: string): Promise<VideoRecord | undefined> {
-  const db = await getDb();
-  return db.get('videos', videoId);
-}
-
-export async function listSegments(videoId: string): Promise<SegmentRecord[]> {
-  const db = await getDb();
-  return db.getAllFromIndex('segments', 'by-videoId', videoId);
-}
-
-export async function putSegments(segments: SegmentRecord[]): Promise<void> {
-  if (segments.length === 0) return;
-  const db = await getDb();
-  const tx = db.transaction('segments', 'readwrite');
-  for (const seg of segments) await tx.store.put(seg);
-  await tx.done;
-}
-
-export async function getEmbedding(id: string): Promise<EmbeddingRecord | undefined> {
-  const db = await getDb();
-  return db.get('embeddings', id);
-}
-
-export async function putEmbedding(record: EmbeddingRecord): Promise<void> {
-  const db = await getDb();
-  await db.put('embeddings', record);
-}
-
-export async function listEmbeddings(videoId: string): Promise<EmbeddingRecord[]> {
-  const db = await getDb();
-  return db.getAllFromIndex('embeddings', 'by-videoId', videoId);
-}
-
-export async function listAllEmbeddings(): Promise<EmbeddingRecord[]> {
-  const db = await getDb();
-  return db.getAll('embeddings');
-}
-
-export async function listAllSegments(): Promise<SegmentRecord[]> {
-  const db = await getDb();
-  return db.getAll('segments');
-}
-
 export async function listVideos(): Promise<VideoRecord[]> {
-  const db = await getDb();
-  return db.getAll('videos');
+  return (await (await db()).getAll('videos')).sort((a, b) => (b.analyzedAt ?? b.addedAt) - (a.analyzedAt ?? a.addedAt));
+}
+export async function getCaptions(videoId: string) {
+  return (await (await db()).get('captions', videoId))?.lines ?? null;
+}
+export async function putCaptions(videoId: string, lines: CaptionLine[]) {
+  await (await db()).put('captions', { videoId, lines });
+}
+export async function getSegments(videoId: string) {
+  return (await (await db()).get('segments', videoId))?.segments ?? [];
+}
+export async function putSegments(videoId: string, segments: Segment[]) {
+  await (await db()).put('segments', { videoId, segments });
+}
+export async function getDigest(videoId: string) {
+  return (await (await db()).get('digests', videoId))?.digest ?? null;
+}
+export async function putDigest(videoId: string, digest: VideoDigest) {
+  await (await db()).put('digests', { videoId, digest });
+}
+export async function getJob(videoId: string) {
+  return (await db()).get('jobs', videoId);
+}
+export async function putJob(job: JobRecord) {
+  await (await db()).put('jobs', job);
+}
+export async function listJobs() {
+  return (await db()).getAll('jobs');
 }
 
-export async function putAnalysisRun(run: AnalysisRunRecord): Promise<void> {
-  const db = await getDb();
-  await db.put('runs', run);
+export async function getVectors(videoIds: string[] | null, model: string): Promise<Map<string, number[]>> {
+  const d = await db();
+  const rows = videoIds
+    ? (await Promise.all(videoIds.map((id) => d.getAllFromIndex('vectors', 'byVideo', id)))).flat()
+    : await d.getAll('vectors');
+  return new Map(rows.filter((r) => r.model === model).map((r) => [r.passageId, r.vector]));
+}
+export async function putVectors(videoId: string, model: string, rows: Array<{ id: string; vector: number[] }>) {
+  const tx = (await db()).transaction('vectors', 'readwrite');
+  await Promise.all(rows.map((r) => tx.store.put({ key: `${model}|${r.id}`, videoId, model, passageId: r.id, vector: r.vector })));
+  await tx.done;
 }
 
-export async function listAnalysisRuns(videoId: string): Promise<AnalysisRunRecord[]> {
-  const db = await getDb();
-  const runs = await db.getAllFromIndex('runs', 'by-videoId', videoId);
-  return runs.slice().sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+const MAX_TRACES = 300;
+export async function putTrace(t: Trace) {
+  const d = await db();
+  await d.put('traces', JSON.parse(JSON.stringify(t)) as Trace);
+  const count = await d.count('traces');
+  if (count > MAX_TRACES) {
+    const tx = d.transaction('traces', 'readwrite');
+    let cursor = await tx.store.index('byStart').openCursor();
+    let extra = count - MAX_TRACES;
+    while (cursor && extra > 0) {
+      await cursor.delete();
+      extra -= 1;
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+  }
+}
+export async function listTraces(videoId?: string, limit = 50): Promise<Trace[]> {
+  const d = await db();
+  const all = videoId ? await d.getAllFromIndex('traces', 'byVideo', videoId) : await d.getAll('traces');
+  return all.sort((a, b) => b.startedAt - a.startedAt).slice(0, limit);
 }
 
-export async function getLatestAnalysisRun(videoId: string): Promise<AnalysisRunRecord | undefined> {
-  const runs = await listAnalysisRuns(videoId);
-  return runs[0];
+export async function getChat(videoId: string): Promise<ChatTurnRecord[]> {
+  return (await (await db()).get('chats', videoId))?.turns ?? [];
+}
+export async function putChat(videoId: string, turns: ChatTurnRecord[]) {
+  await (await db()).put('chats', { videoId, turns: turns.slice(-60) });
+}
+
+export async function deleteVideo(videoId: string) {
+  const d = await db();
+  const tx = d.transaction(['videos', 'captions', 'segments', 'digests', 'jobs', 'chats', 'vectors', 'traces'], 'readwrite');
+  await Promise.all([
+    tx.objectStore('videos').delete(videoId),
+    tx.objectStore('captions').delete(videoId),
+    tx.objectStore('segments').delete(videoId),
+    tx.objectStore('digests').delete(videoId),
+    tx.objectStore('jobs').delete(videoId),
+    tx.objectStore('chats').delete(videoId)
+  ]);
+  for (const store of ['vectors', 'traces'] as const) {
+    let c = await tx.objectStore(store).index('byVideo').openCursor(videoId);
+    while (c) {
+      await c.delete();
+      c = await c.continue();
+    }
+  }
+  await tx.done;
+}
+
+export async function clearAll() {
+  const d = await db();
+  await Promise.all((['videos', 'captions', 'segments', 'digests', 'jobs', 'vectors', 'traces', 'chats'] as const).map((s) => d.clear(s)));
+}
+
+export async function stats() {
+  const d = await db();
+  return {
+    videos: await d.count('videos'),
+    vectors: await d.count('vectors'),
+    traces: await d.count('traces'),
+    chats: await d.count('chats')
+  };
 }

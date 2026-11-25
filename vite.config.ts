@@ -61,8 +61,11 @@ async function findFreePort(startPort: number): Promise<number> {
   throw new Error(`No free port found from ${start} (localhost)`);
 }
 
-export default defineConfig(async () => {
-  const env = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), '');
+export default defineConfig(async ({ mode }) => {
+  // `--mode release` (used by `npm run package`) reads env files from an empty directory, so a
+  // developer's VITE_* keys in .env.local can never be inlined into a published bundle.
+  const envDir = mode === 'release' ? path.resolve(__dirname, 'scripts/release-env') : process.cwd();
+  const env = loadEnv(mode, envDir, '');
 
   // CRXJS dev loader runs inside Chrome extension pages/service worker.
   // On Windows, `localhost` may resolve to IPv4 or IPv6 depending on the client.
@@ -77,6 +80,7 @@ export default defineConfig(async () => {
   const port = await findFreePort(startPort);
 
   return {
+    envDir,
     server: {
       port,
       strictPort: true,
@@ -99,17 +103,10 @@ export default defineConfig(async () => {
     build: {
       rollupOptions: {
         input: {
-          popup: path.resolve(__dirname, 'index.html'),
-          options: path.resolve(__dirname, 'options.html'),
           dashboard: path.resolve(__dirname, 'dashboard.html')
         }
       }
     },
-    plugins: [react(), crx({ manifest })],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.')
-      }
-    }
+    plugins: [react(), crx({ manifest })]
   };
 });

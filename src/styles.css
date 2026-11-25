@@ -3,39 +3,50 @@
 @tailwind utilities;
 
 @layer base {
-  html,
+  :host,
+  html {
+    font-family: theme('fontFamily.sans');
+    -webkit-font-smoothing: antialiased;
+  }
   body {
-    @apply bg-white text-slate-900;
+    @apply m-0 bg-slate-50 text-slate-800;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-bili-pink text-white hover:bg-[#f25d89];
+  }
+  .btn-ghost {
+    @apply btn text-slate-600 hover:bg-slate-100;
+  }
+  .btn-outline {
+    @apply btn border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50;
+  }
+  .card {
+    @apply rounded-xl border border-slate-200 bg-white;
+  }
+  .input {
+    @apply w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-bili-blue focus:ring-2 focus:ring-bili-blue/20;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium;
+  }
+  .ts {
+    @apply cursor-pointer rounded px-1 font-mono text-[12px] text-bili-blue hover:bg-bili-blue/10;
   }
 }
 
 @layer utilities {
-  .bdry-scrollbar::-webkit-scrollbar {
-    width: 8px;
+  .scroll-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
   }
-  .bdry-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .bdry-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(148, 163, 184, 0.6);
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.5);
     border-radius: 999px;
-  }
-  .bdry-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(148, 163, 184, 0.85);
-  }
-
-  /* Alias used by prototype UI components */
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 8px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(148, 163, 184, 0.6);
-    border-radius: 999px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(148, 163, 184, 0.85);
   }
 }

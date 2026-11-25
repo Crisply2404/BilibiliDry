@@ -1,14 +1,5 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import OptionsApp from './optionsApp';
+import { createRoot } from 'react-dom/client';
 import '../styles.css';
+import { Options } from './Options';
 
-const rootElement = document.getElementById('root');
-if (!rootElement) throw new Error('Could not find root element');
-
-ReactDOM.createRoot(rootElement).render(
-  <React.StrictMode>
-    <OptionsApp />
-  </React.StrictMode>
-);
-
+createRoot(document.getElementById('root')!).render(<Options />);

@@ -1,26 +1,21 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
 node_modules
 dist
-dist-ssr
-*.local
-.env
-.env.*
-
-# Editor directories and files
+release
+*.log
+.DS_Store
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+
+# local secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# generated
+eval/results/
+test-results/
+
+# third-party projects cloned for reading, not part of this repo
+reference/

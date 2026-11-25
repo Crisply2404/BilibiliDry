@@ -1,19 +1,16 @@
 import type { Config } from 'tailwindcss';
 
 export default {
-  content: ['./index.html', './options.html', './src/**/*.{ts,tsx}', './components/**/*.{ts,tsx}'],
+  content: ['./*.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        bilibili: {
-          pink: '#FB7299',
-          blue: '#23ADE5',
-          gray: '#F4F5F7',
-          dark: '#18191C'
-        }
+        bili: { pink: '#FB7299', blue: '#00AEEC', ink: '#18191C' }
+      },
+      fontFamily: {
+        sans: ['-apple-system', 'BlinkMacSystemFont', '"PingFang SC"', '"Microsoft YaHei"', '"Helvetica Neue"', 'Arial', 'sans-serif']
       }
     }
   },
   plugins: []
 } satisfies Config;
-

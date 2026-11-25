@@ -1,0 +1,1 @@
+# Intentionally empty: release builds must not read .env.local

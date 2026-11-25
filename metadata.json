@@ -1,5 +1,0 @@
-{
-  "name": "BilibiliDry - B站视频智能脱水",
-  "description": "一款针对长视频场景的智能“脱水”工具，支持插件模式与仪表盘模式，通过 Multi-Agent 协作提取干货与知识图谱。",
-  "requestFramePermissions": []
-}
