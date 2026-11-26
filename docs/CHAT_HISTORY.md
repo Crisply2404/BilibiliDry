@@ -47,3 +47,23 @@
 **还没验证**：没有在真实 B 站页面上用真实模型跑过。原因是你 `.env.local` 里那个中转服务对所有模型名都返回 404 “model not found”，Key 或者那个服务大概已经失效了。所以带模型的完整评测（注水识别 F1、重点覆盖率、引用命中率）也还没出数字。换一个能用的 Key（比如 DeepSeek）后，在设置页填上，打开一个你已登录的 B 站视频试一下，再跑一次 `npm run eval`，就能把这几个数字补进 README。
 
 另外，README 里写了从 Releases 下载 zip，但我还没在 GitHub 上发布 Release，要不要发由你决定。
+
+## 第 3 轮（2026-11-26）
+
+### 用户
+
+Publish Release
+
+### Assistant
+
+v1.0.0 已经发布：<https://github.com/Crisply2404/BilibiliDry/releases/tag/v1.0.0>，附件是 `bilibilidry-v1.0.0.zip`（约 142 KB）。README 里“到 Releases 下载”的链接现在能用了。
+
+发布前发现上次推送后 CI 是红的。类型检查、单元测试、离线评测和构建都过了，只有端到端测试那一步失败：GitHub 的 `ubuntu-latest` 已经换成 Ubuntu 26.04，Playwright 1.57 装不了那上面的 Chromium。我把 CI 固定在 `ubuntu-24.04`（提交 `ci: pin the runner to ubuntu-24.04`），重新跑后全部通过，端到端测试也在 CI 里跑通了。
+
+zip 是在本机用发布模式重新打的，发布前检查过：
+
+- 里面只有构建产物（25 个文件），版本号 1.0.0；
+- 没有任何疑似 API Key，`.env.local` 里每个变量的值都不在包里；
+- 没有你的邮箱，也没有本机路径。
+
+Release 说明里写了安装步骤、主要功能和当前的限制：模型相关的评测数字还没跑，也还没在真实 B 站页面上配真实模型测过。等你换上能用的 Key 跑完 `npm run eval`，可以把数字补进 README 和这份 Release 说明。
