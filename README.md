@@ -8,6 +8,8 @@
 
 自带 Key（DeepSeek / 通义 / Kimi / 智谱 / 硅基流动 / Gemini / OpenAI / Ollama 都行）· 没有服务器 · 数据只存在你的浏览器里
 
+**[▶ 在线演示](https://crisply2404.github.io/BilibiliDry/)**：不用装扩展、不用 Key，打开就能点
+
 </div>
 
 | 视频页面板 | 带出处的问答 | 知识库工作台 |
@@ -99,6 +101,7 @@ npm run dev         # 热更新开发；Chrome 加载 dist/
 npm run check       # 类型检查 + 单元测试 + 离线评测
 npm run build && npm run e2e   # 在真实 Chromium 里跑端到端测试（需要 Playwright 的 Chromium，可用 PW_CHROMIUM 指定）
 npm run package     # 发布构建并打包 release/bilibilidry-v*.zip
+npm run demo        # 本地跑在线演示；npm run demo:build && npm run e2e:demo 构建并测试
 ```
 
 - 本地开发可以在 `.env.local` 里写 `VITE_OPENAI_BASE_URL`、`VITE_OPENAI_API_KEY`、`VITE_OPENAI_MODEL` 等变量预填设置（参考 `.env.example`）。这些值会被内联进 `npm run build` 的产物，所以只适合本机使用。`npm run package` 不读取它们，打包前还会扫描产物，发现疑似 Key 就拒绝打包。
@@ -114,6 +117,7 @@ src/
   ui/           共用组件与 hooks
 eval/           评测集与评测脚本
 e2e/            端到端测试（fixture + 模拟模型）
+demo/           在线演示（GitHub Pages）：扩展代码原样运行，B 站接口和模型换成预先准备的回应
 ```
 
 ## License

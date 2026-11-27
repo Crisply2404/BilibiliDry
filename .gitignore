@@ -1,5 +1,6 @@
 node_modules
 dist
+dist-demo
 release
 *.log
 .DS_Store
@@ -19,3 +20,6 @@ test-results/
 
 # third-party projects cloned for reading, not part of this repo
 reference/
+
+# local Claude Code preview config
+.claude/launch.json

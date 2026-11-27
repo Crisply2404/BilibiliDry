@@ -14,7 +14,10 @@
     "eval": "tsx eval/run.ts",
     "package": "vite build --mode release && node scripts/package.mjs",
     "check": "npm run typecheck && npm run test && npm run eval -- --offline",
-    "e2e": "tsx e2e/smoke.ts"
+    "e2e": "tsx e2e/smoke.ts",
+    "demo": "vite --config vite.demo.config.ts",
+    "demo:build": "vite build --config vite.demo.config.ts && node scripts/scan-secrets.mjs dist-demo",
+    "e2e:demo": "tsx e2e/demo.ts"
   },
   "dependencies": {
     "idb": "^8.0.3",

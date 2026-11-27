@@ -103,3 +103,18 @@ flowchart LR
 - `npm run eval -- --offline`：不需要 Key 的检索评测（见 [EVAL.md](EVAL.md)）。
 - `npm run eval`：用真实模型跑完整流水线和 Agent，输出注水识别 F1、重点覆盖率、引用命中率、开销。
 - `npm run e2e`：在真实 Chromium 里加载构建产物，B 站接口用 fixture 代替，模型用本地 mock 服务代替，走完“设置 → 分析 → 问答 → 搜索 → 工作台 → 导出”整条链路。
+- `npm run e2e:demo`：测在线演示（见下一节）。
+
+## 9. 在线演示
+
+[在线演示](https://crisply2404.github.io/BilibiliDry/)让人不装扩展、不配 Key 也能把整个流程点一遍。它不是另写的一套页面，而是把扩展的代码原样放进普通网页里跑：
+
+| 部分 | 演示里是什么 |
+|---|---|
+| 后台（`src/background`）、分析流水线、检索、问答 Agent、Trace、IndexedDB | 原样运行，和扩展里是同一份代码 |
+| 视频页面板（`src/content`）、知识库工作台（`src/dashboard`） | 原样运行 |
+| `chrome.*` API | `demo/src/chromeShim.ts`：消息、port、`storage`、`tabs` 的最小实现。和 Chrome 一样，页面发出的 `runtime.sendMessage` 只到后台，`tabs.sendMessage` 只到页面 |
+| B 站接口 | `demo/src/fakeNetwork.ts`：用评测集里的两份原创字幕回应视频信息和字幕请求 |
+| 大模型 | `demo/src/scriptedModel.ts`：按 OpenAI 协议回应（JSON、SSE 流式、tool calls）。分块结果、总结和几个常见问题的回答是事先按字幕写好的；没准备的问题会直接列出检索到的原文，并说明这一点 |
+
+所以演示里的落地分、重点挑选、混合检索、工具调用循环、引用校验和断点续跑都是真实计算的结果，只有“模型写了什么”是事先准备的。模拟模型靠扩展自己的提示词识别请求类型，改提示词时要同步改它；`npm run e2e:demo` 会在 CI 里把访客的路径走一遍（分析、问答、跨视频搜索、工作台），防止演示悄悄坏掉。`.github/workflows/pages.yml` 在 main 更新时构建、测试并发布到 GitHub Pages。

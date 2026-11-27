@@ -297,7 +297,7 @@ export function Overlay() {
           )}
         </button>
       ) : (
-        <div className="pointer-events-auto fixed z-[2147483600] flex max-h-[calc(100vh-110px)] w-[380px] flex-col overflow-hidden rounded-2xl bg-white text-slate-800 shadow-2xl ring-1 ring-slate-200" style={{ right: pos.right, top: pos.top }}>
+        <div className="pointer-events-auto fixed z-[2147483600] flex max-h-[calc(100vh-110px)] w-[380px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-2xl bg-white text-slate-800 shadow-2xl ring-1 ring-slate-200" style={{ right: pos.right, top: pos.top }}>
           <header className="flex cursor-move items-center gap-2 border-b border-slate-100 px-3 py-2" onPointerDown={onDrag}>
             <GripHorizontal className="h-4 w-4 text-slate-300" />
             <span className="text-[14px] font-semibold">

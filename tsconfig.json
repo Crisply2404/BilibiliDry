@@ -16,5 +16,5 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src", "eval", "scripts", "manifest.config.ts", "vite.config.ts", "vitest.config.ts", "tailwind.config.ts"]
+  "include": ["src", "eval", "demo/src", "scripts", "manifest.config.ts", "vite.config.ts", "vite.demo.config.ts", "vitest.config.ts", "tailwind.config.ts"]
 }

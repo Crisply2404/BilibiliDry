@@ -1,0 +1,372 @@
+:root {
+  color-scheme: light;
+  --bg: #f1f2f3;
+  --card: #ffffff;
+  --ink: #18191c;
+  --muted: #61666d;
+  --line: #e3e5e7;
+  --pink: #fb7299;
+  --blue: #00aeec;
+  --radius: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+  padding: 0 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  font-size: 18px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.brand span {
+  color: var(--pink);
+}
+
+.brand em {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff0f5;
+  color: var(--pink);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.topbar nav {
+  display: flex;
+  flex: 1;
+  justify-content: flex-end;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.topbar nav a,
+.topbar nav button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.topbar nav a:hover,
+.topbar nav button:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.page {
+  display: grid;
+  gap: 16px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* Leave room for the extension's 380px panel, which floats at the right edge like on Bilibili. */
+@media (min-width: 1180px) {
+  .page {
+    padding-right: 420px;
+  }
+}
+
+.intro,
+.meta,
+.next {
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.intro h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.intro p,
+.intro li {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.intro p {
+  margin: 0 0 8px;
+}
+
+.intro ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.intro .muted {
+  margin: 0;
+}
+
+.player {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: #000;
+  aspect-ratio: 16 / 9;
+}
+
+.player video {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.player-label {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.player-title {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  width: 80%;
+  transform: translate(-50%, -50%);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: clamp(16px, 3.2vw, 30px);
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.caption {
+  position: absolute;
+  bottom: 56px;
+  left: 50%;
+  max-width: 90%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: clamp(13px, 2vw, 18px);
+  line-height: 1.5;
+  text-align: center;
+  pointer-events: none;
+}
+
+.meta h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.toggle input {
+  accent-color: var(--pink);
+}
+
+.next-head {
+  margin-bottom: 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.next-card {
+  display: flex;
+  gap: 12px;
+  text-decoration: none;
+}
+
+.next-thumb {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  justify-content: flex-end;
+  width: 160px;
+  aspect-ratio: 16 / 9;
+  padding: 6px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #0f172a, #1e3a8a);
+  color: #fff;
+  font-size: 12px;
+}
+
+.next-thumb[data-kind='pork'] {
+  background: linear-gradient(135deg, #431407, #9a3412);
+}
+
+.next-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.next-title {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.next-card:hover .next-title {
+  color: var(--blue);
+}
+
+.next-status {
+  margin-top: 10px;
+}
+
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font: inherit;
+  cursor: pointer;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.modal-card {
+  width: min(440px, 100%);
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-card h3 {
+  margin: 0 0 10px;
+}
+
+.modal-card p {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn.primary {
+  border-color: var(--pink);
+  background: var(--pink);
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  /* On a phone the player comes first, the way video sites lay out. */
+  .player {
+    order: -2;
+  }
+  .meta {
+    order: -1;
+  }
+  .topbar {
+    gap: 8px;
+  }
+  .brand em {
+    display: none;
+  }
+  .topbar nav a,
+  .topbar nav button {
+    padding: 6px 6px;
+    font-size: 13px;
+  }
+  .caption {
+    bottom: 44px;
+  }
+  .next-thumb {
+    width: 120px;
+  }
+  .toggle {
+    margin-left: 0;
+  }
+}
