@@ -1,5 +1,5 @@
-import { mmr } from '../retrieval/fusion';
-import type { Segment } from '../types';
+import { mmr } from '../../../src/core/retrieval/fusion';
+import type { Segment } from '../../../src/core/types';
 
 /** Number of highlights scales with length: ~1 per 4 minutes, between 3 and 10. */
 export function highlightBudget(durationSec: number): number {

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AgentEvent } from '../core/agent/agent';
 import type { Trace } from '../core/trace/tracer';
-import type { ChatIn, ChatOut, ChatTurnRecord, Push, VideoBundle } from '../shared/protocol';
+import type { ChatEvent, ChatIn, ChatOut, ChatTurnRecord, Push, VideoBundle } from '../shared/protocol';
 import { send } from '../shared/protocol';
 import { onSettingsChanged, type Settings } from '../shared/settings';
 
@@ -62,6 +61,7 @@ export function useVideo(videoId: string | null) {
   }, [reload]);
   useEvents(videoId, (p) => {
     if (p.type === 'JOB' && p.job.videoId === videoId) setBundle((b) => (b ? { ...b, job: p.job } : b));
+    if (p.type === 'VIDEO' && p.video.videoId === videoId) setBundle((b) => (b ? { ...b, video: p.video } : b));
     if (p.type === 'SEGMENTS' && p.videoId === videoId) {
       setBundle((b) => (b ? { ...b, segments: p.segments, ...(p.digest !== undefined ? { digest: p.digest } : {}) } : b));
       if (p.digest) void reload();
@@ -77,22 +77,24 @@ export interface LiveTurn {
   tools: Array<{ id: string; name: string; args: Record<string, unknown>; summary?: string }>;
 }
 
-export function useChat(videoId: string | null) {
+/** One chat thread: a videoId, or 'library' for questions across all videos. */
+export function useChat(key: string | null) {
   const [turns, setTurns] = useState<ChatTurnRecord[]>([]);
   const [live, setLive] = useState<LiveTurn | null>(null);
   const [error, setError] = useState<string | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
 
   useEffect(() => {
-    if (!videoId) return;
-    send<ChatTurnRecord[]>({ type: 'GET_CHAT', videoId }).then(setTurns).catch(() => undefined);
+    setTurns([]);
+    if (!key) return;
+    send<ChatTurnRecord[]>({ type: 'GET_CHAT', key }).then(setTurns).catch(() => undefined);
     return () => {
       portRef.current?.disconnect();
       portRef.current = null;
     };
-  }, [videoId]);
+  }, [key]);
 
-  const onEvent = (e: AgentEvent) => {
+  const onEvent = (e: ChatEvent) => {
     setLive((l) => {
       if (!l) return l;
       if (e.type === 'tool_call') return { ...l, answer: '', tools: [...l.tools, { id: e.id, name: e.name, args: e.args }] };
@@ -104,7 +106,7 @@ export function useChat(videoId: string | null) {
 
   const ask = useCallback(
     (question: string, currentTime?: number) => {
-      if (!videoId || !question.trim()) return;
+      if (!key || !question.trim()) return;
       setError(null);
       setLive({ question, answer: '', tools: [] });
       let port = portRef.current;
@@ -124,9 +126,9 @@ export function useChat(videoId: string | null) {
         });
         portRef.current = port;
       }
-      port.postMessage({ type: 'ASK', videoId, question, currentTime } satisfies ChatIn);
+      port.postMessage({ type: 'ASK', key, question, currentTime } satisfies ChatIn);
     },
-    [videoId]
+    [key]
   );
 
   const stop = useCallback(() => {
@@ -136,9 +138,9 @@ export function useChat(videoId: string | null) {
   }, []);
 
   const clear = useCallback(async () => {
-    if (!videoId) return;
-    setTurns(await send<ChatTurnRecord[]>({ type: 'CLEAR_CHAT', videoId }));
-  }, [videoId]);
+    if (!key) return;
+    setTurns(await send<ChatTurnRecord[]>({ type: 'CLEAR_CHAT', key }));
+  }, [key]);
 
   return { turns, live, error, ask, stop, clear };
 }

@@ -1,3 +1,5 @@
+import type { ReasoningStyle } from './openaiCompat';
+
 /**
  * Provider presets for the settings page. Every entry is an OpenAI-compatible
  * endpoint, so one client covers all of them. Model names are defaults only;
@@ -7,9 +9,15 @@ export interface ProviderPreset {
   id: string;
   label: string;
   baseUrl: string;
+  /** Default model; users can type any model their account has. */
   model: string;
-  cheapModel?: string;
+  /** Other models worth offering in the picker. */
+  models?: string[];
   embeddingModel?: string;
+  /** How to ask for less or more thinking; providers without it get no extra parameters. */
+  reasoningStyle?: ReasoningStyle;
+  /** Context window in tokens, used to decide whether a whole transcript fits in one call. */
+  contextTokens?: number;
   keyUrl?: string;
   note?: string;
 }
@@ -17,18 +25,20 @@ export interface ProviderPreset {
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: 'deepseek',
-    label: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-chat',
+    label: 'DeepSeek（推荐）',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-flash',
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
+    reasoningStyle: 'deepseek',
+    contextTokens: 1_000_000,
     keyUrl: 'https://platform.deepseek.com/api_keys',
-    note: '便宜、中文好；没有 Embedding 接口，检索只用 BM25'
+    note: 'deepseek-flash 便宜、快、中文好，1M 上下文；没有 Embedding 接口，知识库检索只用关键词'
   },
   {
     id: 'qwen',
     label: '通义千问（阿里云百炼）',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     model: 'qwen-plus',
-    cheapModel: 'qwen-flash',
     embeddingModel: 'text-embedding-v3',
     keyUrl: 'https://bailian.console.aliyun.com/'
   },
@@ -37,7 +47,6 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: '硅基流动 SiliconFlow',
     baseUrl: 'https://api.siliconflow.cn/v1',
     model: 'deepseek-ai/DeepSeek-V3',
-    cheapModel: 'Qwen/Qwen2.5-7B-Instruct',
     embeddingModel: 'BAAI/bge-m3',
     keyUrl: 'https://cloud.siliconflow.cn/account/ak',
     note: 'bge-m3 Embedding 免费'
@@ -54,7 +63,6 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: '智谱 GLM',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     model: 'glm-4.5-air',
-    cheapModel: 'glm-4.5-flash',
     embeddingModel: 'embedding-3',
     keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys'
   },
@@ -63,7 +71,6 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: 'Google Gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     model: 'gemini-2.5-flash',
-    cheapModel: 'gemini-2.5-flash-lite',
     embeddingModel: 'gemini-embedding-001',
     keyUrl: 'https://aistudio.google.com/apikey'
   },
@@ -72,7 +79,6 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     label: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
     model: 'gpt-4.1-mini',
-    cheapModel: 'gpt-4.1-nano',
     embeddingModel: 'text-embedding-3-small',
     keyUrl: 'https://platform.openai.com/api-keys'
   },
@@ -106,5 +112,21 @@ export function originPattern(baseUrl: string): string | null {
     return `${u.protocol}//${u.hostname}/*`;
   } catch {
     return null;
+  }
+}
+
+/** Transcript characters to send per analysis call for a provider/base URL. */
+export function analysisCharBudget(preset: ProviderPreset | undefined): number {
+  const tokens = preset?.contextTokens ?? 128_000;
+  // ~1.3 characters per token for Chinese captions with line prefixes; leave half the window for output and prompt.
+  return Math.min(300_000, Math.floor(tokens * 0.5 * 1.3));
+}
+
+export function presetForUrl(baseUrl: string): ProviderPreset | undefined {
+  try {
+    const host = new URL(baseUrl).host;
+    return PROVIDER_PRESETS.find((p) => p.baseUrl && new URL(p.baseUrl).host === host);
+  } catch {
+    return undefined;
   }
 }

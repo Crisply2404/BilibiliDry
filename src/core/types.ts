@@ -107,3 +107,18 @@ export interface Citation {
   end: number;
   label: string;
 }
+
+/**
+ * Bilibili's own AI summary for a video (from the player's "AI 小助手"), when the site has one.
+ * Shown without any API key; also given to the model as a hint.
+ */
+export interface OfficialSummary {
+  summary: string;
+  outline: OutlineSection[];
+}
+
+export interface OutlineSection {
+  title: string;
+  start: number;
+  points: Array<{ time: number; text: string }>;
+}

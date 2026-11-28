@@ -1,6 +1,6 @@
 /**
- * The v0 search scorer, kept verbatim in spirit so the eval can show what the
- * rewrite changed: whole-query substring match, else space-separated token
+ * The extension's first search scorer, kept verbatim in spirit so the eval can show what
+ * BM25 changed: whole-query substring match, else space-separated token
  * overlap, else CJK character-bigram overlap. No IDF, no length
  * normalisation, no fusion.
  */

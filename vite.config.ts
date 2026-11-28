@@ -103,7 +103,8 @@ export default defineConfig(async ({ mode }) => {
     build: {
       rollupOptions: {
         input: {
-          dashboard: path.resolve(__dirname, 'dashboard.html')
+          dashboard: path.resolve(__dirname, 'dashboard.html'),
+          sidepanel: path.resolve(__dirname, 'sidepanel.html')
         }
       }
     },

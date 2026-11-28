@@ -1,7 +1,7 @@
-import { asArray, asNumber, asObject, asString, asStringArray, chatJson } from '../llm/json';
-import type { LlmClient } from '../llm/types';
-import { formatTime, renderLines, type Chunk } from '../transcript/captions';
-import { WATER_REASONS, type CaptionLine, type Chapter, type Segment, type VideoDigest, type WaterReason } from '../types';
+import { asArray, asNumber, asObject, asString, asStringArray, chatJson } from '../../../src/core/llm/json';
+import type { LlmClient } from '../../../src/core/llm/types';
+import { formatTime, renderLines, type Chunk } from '../../../src/core/transcript/captions';
+import { WATER_REASONS, type CaptionLine, type Chapter, type Segment, type VideoDigest, type WaterReason } from '../../../src/core/types';
 import { segmentSource } from './grounding';
 
 const MAP_SYSTEM = `你是视频内容编辑。你会拿到一段 B 站视频的字幕，每行格式为 [行号|时间] 文本。

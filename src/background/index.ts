@@ -2,14 +2,18 @@ import { toMarkdown } from '../core/export/markdown';
 import { redact } from '../core/llm/openaiCompat';
 import type { Request, Response, TabCommand, VideoBundle } from '../shared/protocol';
 import { loadSettings, normalizeSettings, saveSettings } from '../shared/settings';
+import { ensureVideo } from './bilibili';
 import { attachChatPort } from './chat';
 import * as store from './db';
 import { attachEventsPort, publish } from './hub';
-import { cancelJob, ensureVideo, recoverInterruptedJobs, startJob } from './jobs';
+import { cancelJob, recoverInterruptedJobs, startJob } from './jobs';
 import { invalidate, searchLibrary, searchVideo, toResultItems } from './library';
 import { testConnection } from './llm';
 
 void recoverInterruptedJobs();
+
+// The toolbar button opens the side panel: that is where the summary, chat and library live.
+void chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => undefined);
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') void chrome.runtime.openOptionsPage();
@@ -23,7 +27,7 @@ chrome.runtime.onConnect.addListener((port) => {
 async function videoBundle(videoId: string): Promise<VideoBundle> {
   const [video, segments, digest, job] = await Promise.all([store.getVideo(videoId), store.getSegments(videoId), store.getDigest(videoId), store.getJob(videoId)]);
   if (job) {
-    const { done: _d, configKey: _c, ...pub } = job;
+    const { partial: _p, ...pub } = job;
     return { video: video ?? null, segments, digest, job: pub };
   }
   return { video: video ?? null, segments, digest, job: null };
@@ -56,6 +60,7 @@ async function handle(req: Request): Promise<unknown> {
       return testConnection(normalizeSettings({ ...(await loadSettings()), ...(req.settings ?? {}) }));
     case 'RESOLVE_VIDEO': {
       const v = await ensureVideo(req.bvid, req.page);
+      publish({ type: 'VIDEO', video: v }, v.videoId);
       return videoBundle(v.videoId);
     }
     case 'GET_VIDEO':
@@ -94,9 +99,9 @@ async function handle(req: Request): Promise<unknown> {
     case 'GET_TRACES':
       return store.listTraces(req.videoId, req.limit);
     case 'GET_CHAT':
-      return store.getChat(req.videoId);
+      return store.getChat(req.key);
     case 'CLEAR_CHAT':
-      await store.putChat(req.videoId, []);
+      await store.putChat(req.key, []);
       return [];
     case 'OPEN_DASHBOARD':
       await chrome.tabs.create({ url: chrome.runtime.getURL(`dashboard.html${req.videoId ? `#/video/${encodeURIComponent(req.videoId)}` : ''}`) });
@@ -104,6 +109,8 @@ async function handle(req: Request): Promise<unknown> {
     case 'OPEN_OPTIONS':
       await chrome.runtime.openOptionsPage();
       return true;
+    case 'OPEN_SIDE_PANEL':
+      return true; // handled synchronously in the listener (needs the user gesture)
     case 'SEEK':
       await seek(req.bvid, req.page, req.time);
       return true;
@@ -119,7 +126,21 @@ async function handle(req: Request): Promise<unknown> {
   }
 }
 
-chrome.runtime.onMessage.addListener((req: Request, _sender, sendResponse: (r: Response) => void) => {
+chrome.runtime.onMessage.addListener((req: Request, sender, sendResponse: (r: Response) => void) => {
+  if (req.type === 'OPEN_SIDE_PANEL') {
+    // sidePanel.open only works inside the user gesture, so it must run before any await.
+    const tabId = sender.tab?.id;
+    const windowId = sender.tab?.windowId;
+    if (!chrome.sidePanel?.open || (tabId === undefined && windowId === undefined)) {
+      sendResponse({ ok: false, error: '当前浏览器不支持侧边栏' });
+      return false;
+    }
+    chrome.sidePanel
+      .open(tabId !== undefined ? { tabId } : { windowId: windowId! })
+      .then(() => sendResponse({ ok: true, data: true }))
+      .catch((err: unknown) => sendResponse({ ok: false, error: String((err as Error)?.message ?? err) }));
+    return true;
+  }
   handle(req)
     .then((data) => sendResponse({ ok: true, data }))
     .catch((err) => sendResponse({ ok: false, error: redact(String((err as Error)?.message ?? err)) }));

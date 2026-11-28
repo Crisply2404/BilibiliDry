@@ -1,4 +1,4 @@
-import { parseTime } from '../transcript/captions';
+import { parseTime } from '../../../src/core/transcript/captions';
 
 export interface ParsedCitation {
   raw: string;

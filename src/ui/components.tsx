@@ -1,11 +1,11 @@
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Loader2, Search, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
+import { AlertTriangle, BookOpen, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Loader2, Search, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { heatmap } from '../core/playback';
 import type { Trace } from '../core/trace/tracer';
 import { traceTotals } from '../core/trace/tracer';
 import { formatTime } from '../core/transcript/captions';
-import { WATER_REASON_LABEL, type Segment, type VideoDigest } from '../core/types';
-import type { ChatTurnRecord, JobState, SearchResultItem } from '../shared/protocol';
+import { WATER_REASON_LABEL, type OfficialSummary, type Segment, type VideoDigest } from '../core/types';
+import type { ChatTurnRecord, CitationRecord, JobState, SearchResultItem } from '../shared/protocol';
 import type { LiveTurn } from './hooks';
 
 export type SeekFn = (time: number, bvid?: string) => void;
@@ -97,27 +97,17 @@ export function Heatmap({
   );
 }
 
-const PHASE_LABEL: Record<string, string> = {
-  captions: '读取字幕',
-  map: '分块识别干货/注水',
-  digest: '生成章节与总结',
-  verify: '核对字幕证据',
-  refine: '精修重点',
-  done: '完成'
-};
-
 export function JobBar({ job, onResume, onCancel, onRetryFresh }: { job: JobState | null; onResume: () => void; onCancel: () => void; onRetryFresh?: () => void }) {
-  if (!job) return null;
+  if (!job || job.status === 'done') return null;
   const active = ['queued', 'fetching', 'running'].includes(job.status);
-  const pct = job.chunksTotal ? Math.round((job.chunksDone / job.chunksTotal) * 100) : 0;
-  const resumable = ['interrupted', 'cancelled', 'partial', 'failed'].includes(job.status);
-  if (job.status === 'done') return null;
+  const pct = job.linesTotal ? Math.round((job.linesDone / job.linesTotal) * 100) : 0;
+  const resumable = ['interrupted', 'cancelled', 'failed'].includes(job.status);
   return (
     <div className={cx('rounded-lg border px-3 py-2 text-[12px]', job.status === 'failed' ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50')}>
       <div className="flex items-center gap-2">
         {active ? <Loader2 className="h-3.5 w-3.5 animate-spin text-bili-pink" /> : job.status === 'failed' ? <AlertTriangle className="h-3.5 w-3.5 text-red-500" /> : <CircleDashed className="h-3.5 w-3.5 text-slate-400" />}
-        <span className="font-medium text-slate-700">{active ? PHASE_LABEL[job.phase] ?? job.phase : job.message}</span>
-        {job.chunksTotal > 0 && <span className="text-slate-400">{job.chunksDone}/{job.chunksTotal} 段</span>}
+        <span className="font-medium text-slate-700">{job.message}</span>
+        {active && job.linesTotal > 0 && <span className="text-slate-400">{pct}%</span>}
         <span className="flex-1" />
         {active && (
           <button className="btn-ghost !px-2 !py-0.5 text-[12px]" onClick={onCancel}>
@@ -135,7 +125,7 @@ export function JobBar({ job, onResume, onCancel, onRetryFresh }: { job: JobStat
           </button>
         )}
       </div>
-      {active && job.chunksTotal > 0 && (
+      {active && job.linesTotal > 0 && (
         <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-200">
           <div className="h-full bg-bili-pink transition-all" style={{ width: `${pct}%` }} />
         </div>
@@ -145,14 +135,49 @@ export function JobBar({ job, onResume, onCancel, onRetryFresh }: { job: JobStat
   );
 }
 
-export function DigestView({ digest, segments, onSeek }: { digest: VideoDigest | null; segments: Segment[]; onSeek: SeekFn }) {
+/** Bilibili's own AI summary: shown for every video that has one, no API key needed. */
+export function OfficialSummaryView({ official, onSeek }: { official: OfficialSummary; onSeek: SeekFn }) {
+  return (
+    <section className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5">
+      <h4 className="mb-1 flex items-center gap-1 text-[12px] font-semibold text-slate-500">
+        <BookOpen className="h-3.5 w-3.5 text-bili-blue" /> B 站 AI 总结
+      </h4>
+      {official.summary && <p className="text-[12px] leading-relaxed text-slate-700">{official.summary}</p>}
+      {official.outline.length > 0 && (
+        <ol className="mt-2 space-y-1.5">
+          {official.outline.map((o, i) => (
+            <li key={i} className="text-[12px]">
+              <div className="flex items-start gap-1.5">
+                <Ts t={o.start} onSeek={onSeek} />
+                <span className="font-medium text-slate-800">{o.title}</span>
+              </div>
+              {o.points.length > 0 && (
+                <ul className="mt-0.5 space-y-0.5 pl-12 text-slate-500">
+                  {o.points.map((pt, j) => (
+                    <li key={j}>
+                      <button type="button" className="text-left hover:text-bili-blue" onClick={() => onSeek(pt.time)}>
+                        {pt.text}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+export function DigestView({ digest, segments, onSeek, stats = true }: { digest: VideoDigest | null; segments: Segment[]; onSeek: SeekFn; stats?: boolean }) {
   const highlights = segments.filter((s) => digest?.highlightIds.includes(s.id));
   const waterSec = segments.filter((s) => s.kind === 'water').reduce((a, s) => a + s.end - s.start, 0);
   const total = segments.length ? segments[segments.length - 1].end - segments[0].start : 0;
   return (
     <div className="space-y-4">
       {digest?.tldr && <p className="text-[13px] leading-relaxed text-slate-700">{digest.tldr}</p>}
-      {total > 0 && (
+      {stats && total > 0 && (
         <div className="flex flex-wrap gap-2 text-[11px]">
           <span className="chip bg-bili-pink/10 text-bili-pink">干货 {Math.round(((total - waterSec) / total) * 100)}%</span>
           <span className="chip bg-slate-100 text-slate-500">可跳过 {formatTime(waterSec)}</span>
@@ -268,36 +293,41 @@ export function SegmentList({ segments, onSeek, current, highlightIds }: { segme
   );
 }
 
-/** Render an answer: paragraphs, "- " lists, **bold**, and [mm:ss] / [BV.. mm:ss] as seek buttons. */
-export function AnswerText({ text, citations, onSeek }: { text: string; citations?: ChatTurnRecord['citations']; onSeek: SeekFn }) {
-  const grounded = new Map((citations ?? []).map((c) => [c.raw, c.grounded]));
-  const renderInline = (line: string, key: number): ReactNode => {
-    const parts = line.split(/(\[(?:BV[0-9A-Za-z]{10}\s*)?\d{1,2}:\d{2}(?::\d{2})?\]|\*\*[^*]+\*\*)/g);
-    return (
-      <Fragment key={key}>
-        {parts.map((p, i) => {
-          const m = p.match(/^\[(?:(BV[0-9A-Za-z]{10})\s*)?(\d{1,2}:\d{2}(?::\d{2})?)\]$/);
-          if (m) {
-            const t = m[2].split(':').reduce((a, x) => a * 60 + Number(x), 0);
-            const ok = grounded.get(p);
-            return (
-              <button
-                key={i}
-                type="button"
-                onClick={() => onSeek(t, m[1])}
-                className={cx('ts mx-0.5 align-baseline', ok === false && '!text-amber-600')}
-                title={ok === false ? '这个时间点不在检索到的证据里，请自行核对' : m[1] ? `跳到 ${m[1]} 的 ${m[2]}` : '跳到这里'}
-              >
-                {m[1] ? `${m[1].slice(0, 6)}… ${m[2]}` : m[2]}
-              </button>
-            );
-          }
-          if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{p.slice(2, -2)}</strong>;
-          return <Fragment key={i}>{p}</Fragment>;
-        })}
-      </Fragment>
-    );
-  };
+/** Looks up a caption line's start time; `bvid` is set for citations into another library video. */
+export type LineTime = (line: number, bvid?: string) => number | undefined;
+
+const CITE_SPLIT = /(\[(?:BV[0-9A-Za-z]{10}\s+)?L\d{1,5}(?:\s*[-–~]\s*L?\d{1,5})?\]|\*\*[^*]+\*\*)/g;
+const CITE_ONE = /^\[(?:(BV[0-9A-Za-z]{10})\s+)?L(\d{1,5})(?:\s*[-–~]\s*L?(\d{1,5}))?\]$/;
+
+/** Render an answer: paragraphs, lists, **bold**, and [L123] / [BV.. L123] citations as seek buttons. */
+export function AnswerText({ text, citations, lineTime, onSeek }: { text: string; citations?: CitationRecord[]; lineTime?: LineTime; onSeek: SeekFn }) {
+  const byRaw = new Map((citations ?? []).map((c) => [c.raw, c]));
+  const renderInline = (line: string, key: number): ReactNode => (
+    <Fragment key={key}>
+      {line.split(CITE_SPLIT).map((p, i) => {
+        const m = p.match(CITE_ONE);
+        if (m) {
+          const rec = byRaw.get(p);
+          const t = rec?.time ?? lineTime?.(Number(m[2]), m[1]);
+          if (t === undefined) return <span key={i} className="text-slate-400">{p}</span>;
+          const weak = rec?.supported === false;
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onSeek(t, m[1])}
+              className={cx('ts mx-0.5 align-baseline', weak && '!text-amber-600')}
+              title={weak ? '这句话和引用的字幕对不太上，请自己核对' : m[1] ? `跳到 ${m[1]} 的 ${formatTime(t)}` : '跳到这里'}
+            >
+              {m[1] ? `${m[1].slice(2, 8)}… ${formatTime(t)}` : formatTime(t)}
+            </button>
+          );
+        }
+        if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{p.slice(2, -2)}</strong>;
+        return <Fragment key={i}>{p}</Fragment>;
+      })}
+    </Fragment>
+  );
   const blocks = text.split(/\n{2,}/);
   return (
     <div className="space-y-2 text-[13px] leading-relaxed text-slate-800">
@@ -328,10 +358,9 @@ export function AnswerText({ text, citations, onSeek }: { text: string; citation
 }
 
 const TOOL_LABEL: Record<string, string> = {
-  search_transcript: '检索字幕',
-  read_transcript: '阅读字幕',
-  get_outline: '查看大纲',
-  search_library: '检索知识库'
+  list_videos: '列出视频',
+  search_library: '检索知识库',
+  read_transcript: '阅读字幕'
 };
 
 export function ToolSteps({ tools }: { tools: Array<{ name: string; summary?: string; args?: Record<string, unknown> }> }) {
@@ -362,11 +391,13 @@ export function ChatThread({
   turns,
   live,
   error,
+  lineTime,
   onSeek
 }: {
   turns: ChatTurnRecord[];
   live: LiveTurn | null;
   error: string | null;
+  lineTime?: LineTime;
   onSeek: SeekFn;
 }) {
   return (
@@ -379,11 +410,11 @@ export function ChatThread({
         ) : (
           <div key={i} className="space-y-1.5">
             {t.tools && <ToolSteps tools={t.tools} />}
-            {t.error ? <div className="rounded-lg bg-red-50 px-3 py-2 text-[12px] text-red-600">{t.error}</div> : <AnswerText text={t.content} citations={t.citations} onSeek={onSeek} />}
+            {t.error ? <div className="rounded-lg bg-red-50 px-3 py-2 text-[12px] text-red-600">{t.error}</div> : <AnswerText text={t.content} citations={t.citations} lineTime={lineTime} onSeek={onSeek} />}
             {t.citations && t.citations.length > 0 && (
               <div className="flex items-center gap-1 text-[10px] text-slate-400">
                 <CheckCircle2 className="h-3 w-3" />
-                {t.citations.filter((c) => c.grounded).length}/{t.citations.length} 处引用有字幕证据{t.mode === 'rag' ? ' · 单轮检索模式' : ''}
+                {t.citations.filter((c) => c.supported).length}/{t.citations.length} 处引用和字幕对得上
               </div>
             )}
           </div>
@@ -405,7 +436,7 @@ export function ChatThread({
             </ul>
           )}
           {live.answer ? (
-            <AnswerText text={live.answer} onSeek={onSeek} />
+            <AnswerText text={live.answer} lineTime={lineTime} onSeek={onSeek} />
           ) : (
             <div className="flex items-center gap-1 text-[12px] text-slate-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> 思考中…
@@ -453,7 +484,9 @@ export function TraceList({ traces }: { traces: Trace[] }) {
               <span className="chip bg-slate-100 text-slate-600">{t.kind === 'analysis' ? '分析' : t.kind === 'chat' ? '问答' : '检索'}</span>
               <span className="min-w-0 flex-1 truncate text-slate-700">{t.title}</span>
               <span className="shrink-0 text-slate-400">
-                {tot.llmCalls} 次调用 · {(tot.promptTokens + tot.completionTokens).toLocaleString()} tok · {(tot.wallMs / 1000).toFixed(1)}s
+                {tot.llmCalls} 次调用 · {(tot.promptTokens + tot.completionTokens).toLocaleString()} tok
+                {tot.cachedTokens > 0 && ` · 缓存 ${Math.round((tot.cachedTokens / Math.max(1, tot.promptTokens)) * 100)}%`}
+                {tot.costUsd > 0 && ` · $${tot.costUsd < 0.01 ? tot.costUsd.toFixed(4) : tot.costUsd.toFixed(3)}`} · {(tot.wallMs / 1000).toFixed(1)}s
                 {tot.errors > 0 && <span className="text-red-500"> · {tot.errors} 错误</span>}
               </span>
             </button>

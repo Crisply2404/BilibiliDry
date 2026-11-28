@@ -4,120 +4,103 @@
 
 # BilibiliDry
 
-**B 站长视频 AI 脱水助手**：看一眼就知道哪里是干货、哪里能跳，有问题直接问视频，回答都带可点击的时间戳出处。
+**给 B 站长视频脱水**：进度条上直接标出哪里是干货、哪里是寒暄和广告，一键跳过；有问题直接问视频，回答带可点的字幕出处。
 
-自带 Key（DeepSeek / 通义 / Kimi / 智谱 / 硅基流动 / Gemini / OpenAI / Ollama 都行）· 没有服务器 · 数据只存在你的浏览器里
+B 站自己的 AI 总结不用配置就能看 · 配一个模型（推荐 DeepSeek，一个视频一两分钱）解锁注水识别和问答 · 没有服务器，数据只存在你的浏览器里
 
 **[▶ 在线演示](https://crisply2404.github.io/BilibiliDry/)**：不用装扩展、不用 Key，打开就能点
 
 </div>
 
-| 视频页面板 | 带出处的问答 | 知识库工作台 |
-|---|---|---|
-| ![](docs/screenshots/overlay-overview.png) | ![](docs/screenshots/overlay-chat.png) | ![](docs/screenshots/dashboard-video.png) |
+![播放器里的进度条标注、跳过按钮和右侧的侧边栏](docs/screenshots/player-and-panel.png)
 
-<sub>截图来自端到端测试（`npm run e2e`），内容由模拟模型生成。</sub>
+| 不配 Key：B 站自己的 AI 总结 | 带字幕出处的问答 |
+|---|---|
+| ![](docs/screenshots/official-summary.png) | ![](docs/screenshots/qa.png) |
+
+<sub>截图来自在线演示：扩展的代码原样运行，B 站接口和模型换成了预先准备的回应。</sub>
 
 ## 能做什么
 
-- **干货热力图**：播放器底部多一条细线，粉色越深越重要，灰色是寒暄、广告、重复、跑题。悬停能看到这一段讲了什么，点击直接跳过去。
-- **跳过注水**：一键跳过当前注水段，也可以自动跳过你勾选的类型（广告、寒暄、重复……），每次跳过都能撤销。
-- **只看这几段**：按视频时长挑出 3~10 个最值得看的片段，分散在全片，不会扎堆。每段都核对过字幕证据，证据不足会标出来。
-- **章节和总结**：一句话总结、要点、章节目录。
-- **问这个视频**：比如“他推荐的方案是哪个？”“有没有提到具体数据？”“这里在说什么？”。Agent 会先检索、阅读字幕再回答，每个结论后面带 `[3:25]` 这样的出处，点击就跳到那里。出处不在它查到的字幕里时会标黄。
-- **跨视频知识库**：分析过的视频都会进本地知识库，可以搜“哪个视频讲过 RRF”，也可以在问答里让 Agent 去翻你以前看过的视频。
-- **导出笔记**：一键导出 Markdown（总结、重点、章节、可跳过片段），每个时间戳都是指向原视频对应位置的链接，可以直接贴进 Notion 或 Obsidian。
-- **长视频也稳**：分析从你正在看的位置开始，边看边出结果。中途关掉页面或浏览器，下次点“继续”从断点接着跑，不会重新花钱。
+- **进度条上标出干货和注水**：粉色越深越重要，灰色是寒暄、广告、重复、跑题，就画在 B 站自己的进度条上方，位置对得齐，全屏也在。
+- **一键跳过**：放到注水段时，播放器右下角出现“跳过广告 0:22”；也可以按类型自动跳过，每次都能撤销。
+- **B 站 AI 总结（不用 Key）**：B 站有总结的视频，侧边栏直接显示总结和带时间的大纲，大纲的章节点也标在进度条上。
+- **只看这几段**：模型看完全片后挑出最值得看的几段（按时长 3~10 段），还有一句话总结、要点和章节。
+- **问这个视频**：“他推荐的是哪个？”“有没有提到具体数据？”“现在这里在说什么？”。模型读的是整个视频的字幕，回答里每个结论后面都有出处，点一下跳到说这句话的地方；对不上字幕的出处会标黄。
+- **跨视频知识库**：分析过的视频都进本地知识库。可以搜“哪个视频讲过 RRF”，也可以问 Agent“这两个视频的说法有什么不同”，它会先检索、再读原文，回答里的出处能直接跳到对应视频。
+- **导出笔记**：一键导出 Markdown，时间戳都是指向原视频对应位置的链接。
 
 ## 安装
 
 1. 到 [Releases](https://github.com/Crisply2404/BilibiliDry/releases) 下载 `bilibilidry-v*.zip` 并解压（或者自己构建，见下文）。
 2. 打开 `chrome://extensions`，打开右上角“开发者模式”，点“加载已解压的扩展程序”，选择解压出来的文件夹。
-3. 安装后会自动打开设置页：选一个服务商，填 API Key，点“保存并测试”。
+3. 打开任意 B 站视频，点浏览器右上角的 BilibiliDry 图标打开侧边栏。B 站有 AI 总结的视频，这时就能看到总结。
+4. 想要注水识别和问答：在设置页选服务商、填 API Key，点“保存并测试”。推荐 **DeepSeek**（`deepseek-flash`，便宜、快、中文好，一次能读完几小时的字幕）。
 
-> 不知道选哪个？**DeepSeek** 便宜、中文好。**硅基流动**的 `BAAI/bge-m3` Embedding 免费，填上它能开启语义检索。完全离线可以用 **Ollama**。
+**关于字幕**：BilibiliDry 只读字幕，不做语音识别。B 站大部分视频有 AI 字幕，但要**登录 B 站**才能拿到；没有字幕的视频暂时无法分析。
 
-4. 打开任意 B 站视频，右侧出现面板，点“分析这个视频”。
-
-**关于字幕**：BilibiliDry 只读字幕，不做语音识别。B 站大部分视频有 AI 字幕，但通常**要登录 B 站**才能获取；没有任何字幕的视频暂时无法分析。
-
-**大概花多少钱**：一个 20 分钟的视频，分块分析约 10 次调用，加上总结、核对、精修 5~10 次，输入大约 3 万 token。用 DeepSeek 一般不到一毛钱。
+**大概花多少钱**：用 `deepseek-flash`，分析一个 10~20 分钟的视频约 $0.002（一次调用），每次提问约 $0.0003（同一个视频连续问时字幕走缓存价）。数据来自[评测](docs/EVAL.md)。
 
 ## 隐私
 
 - 没有后端服务器。字幕和问题只会直接发给你在设置里填的模型服务。
 - API Key、分析结果、对话都存在本机（`chrome.storage.local` 和 IndexedDB），设置页可以一键清空。
+- 读取 B 站字幕和 AI 总结时带上你的登录状态，只请求 B 站自己的接口，每个视频只请求一次并缓存。
 - 扩展只申请 B 站相关域名的权限；模型服务的域名在你保存设置时才单独申请。
 
 ---
 
 ## 技术实现
 
-这个项目也是一份 Agent 工程实践：用一个真实的产品场景，把 RAG、工具调用、上下文管理、长任务恢复、评测和可观测性都落地一遍。详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+这个项目也是一份 Agent 工程实践：先按常规做法搭了分块分析和检索式问答，再在 8 个真实 B 站视频上做对照实验，按数据改成了现在的结构。详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，实验见 [docs/EVAL.md](docs/EVAL.md)。
 
 ```mermaid
 flowchart LR
-  P[视频页 / 工作台] -- ports --> SW[Service Worker]
-  SW --> J[分析流水线<br/>map → reduce → select → verify → refine]
-  SW --> A[问答 Agent<br/>ReAct 工具循环]
-  A --> R[混合检索<br/>BM25 + 向量 → RRF → MMR]
-  J & A --> L[LLM 客户端<br/>重试 / 降级 / 流式 / JSON 修复]
-  J & A --> T[Trace]
-  SW --> DB[(IndexedDB)]
+  B["B 站 AI 总结接口<br/>总结 · 大纲 · 字幕"] --> SW["扩展后台"]
+  SW --> A["整片分析<br/>一次调用 · 流式"]
+  SW --> Q["单视频问答<br/>整份字幕进上下文"]
+  SW --> L["知识库 Agent<br/>检索 → 阅读 → 回答"]
+  A & Q & L --> M[("模型<br/>默认 DeepSeek")]
+  SW --> UI["播放器层 + 侧边栏"]
 ```
 
 | 关注点 | 做法 |
 |---|---|
-| 防止模型编造时间 | 字幕按 `[行号\|时间]` 喂给模型，模型只返回行号，时间由程序从字幕里查出来 |
-| 摘要是否有依据 | 先用确定性的“词面落地分”给所有片段打分（零成本）；只有落地分低的重点候选才请模型做事实核查，证据也只能给行号 |
-| 选重点（替代旧版 TopK） | 重要度 × 落地分，数量按时长自适应，用 MMR 惩罚时间上相邻的候选 |
-| 检索 | 40 秒重叠窗口 + 片段摘要作上下文；`Intl.Segmenter` 中文分词做 BM25；可选向量检索；用 RRF 融合，再用 MMR 去冗余 |
-| Agent | 原生 function calling，4 个工具（含跨视频知识库），最多 6 步；回答中的每个引用都要落在本轮检索过的证据里；模型不支持工具调用时自动降级为单轮 RAG |
-| 成本 | Model Cascade：几十次分块调用用便宜模型，总结、核查、精修、问答用主模型 |
-| 长任务 | 每块分析完就写 checkpoint，先分析播放位置附近；Service Worker 被杀后可以续跑；单块失败不影响其余部分 |
-| 可靠性 | 超时、指数退避重试（遵守 Retry-After）；服务商不支持 `response_format`/流式时自动降级；JSON 输出解析失败会带着错误信息让模型修一次；错误里的 Key 会被打码 |
-| 可观测性 | 每次分析和问答都记录 span 级 Trace（耗时、token、错误），开发者模式下可以看时间线 |
-
-### 评测
-
-```bash
-npm run eval -- --offline   # 不需要 Key
-```
-
-在两份带标注的字幕样例（18 个问题）上，和旧版的关键词检索对比：
-
-| 检索方法 | Recall@1 | Recall@3 | MRR | 换说法提问 R@3 |
-|---|---|---|---|---|
-| v0 关键词匹配 | 72% | 78% | 0.75 | 60% |
-| **BM25 + MMR（v1，无需 Key）** | **89%** | **94%** | **0.92** | **90%** |
-
-配置模型后 `npm run eval` 还会给出注水识别 F1、重点覆盖率（对比旧版 TopK=6）、Agent 引用命中率、调用开销。方法和局限见 [docs/EVAL.md](docs/EVAL.md)。
+| 字幕要对 | 不签名的播放器接口会返回别的视频的字幕（实测 6 个里 4 个对不上），所以首选 B 站 AI 总结接口里与视频绑定的字幕；备用接口做 WBI 签名，并检查字幕时长和视频是否对得上 |
+| 分析 | 整个视频一次调用：模型从头读到尾，逐行输出 JSON 片段，边写边上进度条。实测注水 F1 76%，原来的分块 map-reduce 是 64%，调用次数从 10 次降到 1 次，成本减半 |
+| 防止编造时间 | 字幕按 `[行号\|时间]` 喂给模型，模型只返回行号，时间由程序从字幕里查 |
+| 单视频问答 | 不检索，整份字幕放进上下文，引用字幕行号。和检索式 Agent 比：答对率持平，引用落在正确段 76% 对 59%，成本不到一半，快 2.7 倍；字幕在 prompt 最前面，连续提问时 83% 的输入走缓存价 |
+| 跨视频知识库 | 装不进上下文，这里才用 Agent：BM25（可选向量）+ RRF + MMR 检索，读原文，引用必须落在这一轮读过的字幕里 |
+| DeepSeek 适配 | 思考开关按需发送；带工具调用那一轮的思考内容按要求传回；清理偶尔混进输出的控制符；按缓存命中和高峰时段算费用 |
+| 长任务 | 每出一个片段就存一次，Service Worker 被杀后从断点续跑；超长视频按上下文分窗口 |
+| 可观测性 | 每次分析和问答都有 span 级 Trace：耗时、token、缓存命中、费用、错误 |
+| 测试 | 50 个单元测试；真实 Chromium 里的端到端测试（模仿 B 站播放器结构的页面 + 模拟模型）；在线演示也有自己的端到端测试 |
 
 ### 开发
 
 ```bash
 npm install
-npm run dev         # 热更新开发；Chrome 加载 dist/
-npm run check       # 类型检查 + 单元测试 + 离线评测
-npm run build && npm run e2e   # 在真实 Chromium 里跑端到端测试（需要 Playwright 的 Chromium，可用 PW_CHROMIUM 指定）
-npm run package     # 发布构建并打包 release/bilibilidry-v*.zip
-npm run demo        # 本地跑在线演示；npm run demo:build && npm run e2e:demo 构建并测试
+cp .env.example .env.local   # 填上自己的 Key，开发构建会预填到设置里
+npm run dev                  # 热更新开发；Chrome 加载 dist/
+npm run check                # 类型检查 + 单元测试 + 离线检索评测
+npm run build && npm run e2e # 在真实 Chromium 里跑端到端测试（可用 PW_CHROMIUM 指定浏览器）
+npm run eval:real            # 真实视频对比评测（需要 Key 和本地字幕数据，见 eval/real/README.md）
+npm run package              # 发布构建并打包 release/bilibilidry-v*.zip（不读 .env.local，还会扫描疑似 Key）
+npm run demo                 # 本地跑在线演示；npm run demo:build && npm run e2e:demo 构建并测试
 ```
-
-- 本地开发可以在 `.env.local` 里写 `VITE_OPENAI_BASE_URL`、`VITE_OPENAI_API_KEY`、`VITE_OPENAI_MODEL` 等变量预填设置（参考 `.env.example`）。这些值会被内联进 `npm run build` 的产物，所以只适合本机使用。`npm run package` 不读取它们，打包前还会扫描产物，发现疑似 Key 就拒绝打包。
 
 ```
 src/
-  core/         纯 TypeScript：分析流水线、检索、Agent、LLM 客户端、Trace（Node 里可测）
-  background/   Service Worker：B 站接口、IndexedDB、任务调度、问答、消息路由
-  content/      视频页面板（Shadow DOM）
+  core/         纯 TypeScript：B 站客户端、整片分析、问答、知识库 Agent、检索、LLM 客户端、Trace
+  background/   Service Worker：数据缓存、任务调度、问答、消息路由
+  content/      播放器层（进度条标注、跳过按钮）
+  sidepanel/    Chrome 侧边栏
   dashboard/    知识库工作台
   options/      设置页
-  popup/        工具栏弹窗
   ui/           共用组件与 hooks
-eval/           评测集与评测脚本
-e2e/            端到端测试（fixture + 模拟模型）
-demo/           在线演示（GitHub Pages）：扩展代码原样运行，B 站接口和模型换成预先准备的回应
+eval/           离线检索评测、真实视频评测、对照用的旧实现（eval/baselines）
+e2e/            端到端测试
+demo/           在线演示（GitHub Pages）
 ```
 
 ## License

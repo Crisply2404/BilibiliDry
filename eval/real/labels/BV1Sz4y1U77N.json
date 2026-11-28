@@ -1,0 +1,28 @@
+{
+  "bvid": "BV1Sz4y1U77N",
+  "note": "20 分钟 Python 基础速通，几乎全是干货。",
+  "water": [
+    { "start": 0, "end": 10, "reason": "smalltalk", "note": "开场" },
+    { "start": 1229, "end": 1253, "reason": "smalltalk", "note": "结尾说明内容不全、欢迎指正" }
+  ],
+  "ambiguous": [],
+  "key": [
+    { "start": 10, "end": 102, "note": "注释、变量、数据类型、输出、输入与类型转换" },
+    { "start": 208, "end": 289, "note": "条件语句与缩进" },
+    { "start": 289, "end": 421, "note": "while/for 循环、break/continue、循环的 else" },
+    { "start": 421, "end": 519, "note": "字符串切片、替换、分割、拼接" },
+    { "start": 600, "end": 740, "note": "列表增删改、复制的坑、排序、元组" },
+    { "start": 763, "end": 882, "note": "集合与字典" },
+    { "start": 882, "end": 1098, "note": "函数、参数与返回值、全局变量、递归" },
+    { "start": 1126, "end": 1229, "note": "拆包、不定长参数、默认参数、参数顺序" }
+  ],
+  "questions": [
+    { "q": "break 和 continue 有什么区别？", "gold": [[309, 337]], "answer": "break 直接跳出最近的一层循环；continue 只跳过当前这一次，继续下一次循环", "style": "lexical" },
+    { "q": "为什么直接用 b = a 复制列表会出问题？", "gold": [[664, 715]], "answer": "两个变量指向同一块内存，改 a 里的元素 b 也跟着变；应该用 copy 复制一份", "style": "paraphrase" },
+    { "q": "字符串切片 [1:5] 取的是哪几个字符？", "gold": [[421, 446]], "answer": "下标 1 到 4，左闭右开，不包括下标 5", "style": "lexical" },
+    { "q": "函数的几种参数要按什么顺序写？", "gold": [[1205, 1229]], "answer": "普通参数、默认参数、包裹位置参数（一个星号）、包裹关键字参数（两个星号）", "style": "paraphrase" },
+    { "q": "函数里要修改外面的全局变量，需要怎么做？", "gold": [[978, 1000]], "answer": "在函数开头用 global 声明这个变量", "style": "paraphrase" },
+    { "q": "空的大括号 {} 表示集合还是字典？", "gold": [[846, 862]], "answer": "表示空字典；空集合要用另一种写法（set()）", "style": "lexical" },
+    { "q": "视频有没有讲 lambda 表达式？", "gold": [[1229, 1253]], "answer": "没有讲；作者在结尾说格式化输出、lambda 表达式这些没覆盖到", "style": "absent" }
+  ]
+}

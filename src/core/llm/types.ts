@@ -12,6 +12,8 @@ export interface ChatMessage {
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;
+  /** Thinking text of an assistant turn. DeepSeek requires it to be sent back on turns that made tool calls. */
+  reasoning_content?: string;
 }
 
 export interface JsonSchema {
@@ -40,19 +42,32 @@ export interface ChatRequest {
   /** Override the client's default model for this call (used by the cheap/strong cascade). */
   model?: string;
   signal?: AbortSignal;
-  /** Free-form label recorded in traces, e.g. "map:chunk-3". */
+  /** Free-form label recorded in traces, e.g. "analyze" or "qa:step-2". */
   purpose?: string;
+  /**
+   * How much the model should think before answering, for providers that support it
+   * (DeepSeek: "off" disables thinking, the rest map to reasoning_effort). Ignored elsewhere.
+   */
+  reasoning?: ReasoningLevel;
 }
+
+export type ReasoningLevel = 'off' | 'low' | 'high' | 'max';
 
 export interface Usage {
   promptTokens: number;
   completionTokens: number;
+  /** Prompt tokens served from the provider's prefix cache (billed at the cache-hit price). */
+  cachedTokens?: number;
+  /** Part of completionTokens spent on thinking. */
+  reasoningTokens?: number;
   /** True when the provider did not report usage and we estimated it from characters. */
   estimated: boolean;
 }
 
 export interface ChatResult {
   content: string;
+  /** Thinking text, if the provider returned any. */
+  reasoning: string;
   toolCalls: ToolCall[];
   usage: Usage;
   model: string;

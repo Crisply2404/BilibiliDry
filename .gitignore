@@ -23,3 +23,6 @@ reference/
 
 # local Claude Code preview config
 .claude/launch.json
+
+# real Bilibili transcripts for evaluation: third-party content, kept local
+eval/real/data/

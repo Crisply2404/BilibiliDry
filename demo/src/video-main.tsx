@@ -8,17 +8,23 @@ const bvid = /\/video\/(BV[0-9A-Za-z]{10})/.exec(location.pathname)?.[1];
 const video = DEMO_VIDEOS.find((v) => v.bvid === bvid) ?? DEMO_VIDEOS[0];
 const other = DEMO_VIDEOS.find((v) => v !== video)!;
 
-// On a phone the 380px panel would cover the player, so it starts collapsed there.
-try {
-  if (innerWidth < 760 && localStorage.getItem('bdry.collapsed') === null) localStorage.setItem('bdry.collapsed', 'true');
-} catch {
-  // storage blocked: the panel just starts open
-}
+let flash = 0;
+const root = createRoot(document.getElementById('app')!);
+const render = () => root.render(<VideoPage video={video} other={other} flash={flash} />);
 
 void (async () => {
-  await boot({ tabBvid: video.bvid, onOpenOptions: () => window.dispatchEvent(new Event('bdry-demo:options')) });
+  await boot({
+    tabBvid: video.bvid,
+    onOpenOptions: () => window.dispatchEvent(new Event('bdry-demo:options')),
+    // The player's "open side panel" button: the panel is already on the page, so point at it.
+    onOpenSidePanel: () => {
+      flash += 1;
+      render();
+      document.querySelector('.sidepanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
   document.title = `${video.built.video.title} · BilibiliDry 在线演示`;
-  createRoot(document.getElementById('app')!).render(<VideoPage video={video} other={other} />);
-  // The extension's real content script: mounts the panel in a Shadow DOM and finds the <video> above.
+  render();
+  // The extension's real content script: finds the player container and its progress bar.
   await import('../../src/content/index');
 })();

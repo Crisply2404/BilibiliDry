@@ -5,7 +5,7 @@ import { formatTime } from '../core/transcript/captions';
 import type { CaptionLine } from '../core/types';
 import { videoUrl } from '../core/export/markdown';
 import { send, type JobState, type SearchResultItem, type VideoRecord } from '../shared/protocol';
-import { ChatThread, cx, DigestView, Empty, Heatmap, JobBar, SearchResults, SegmentList, TraceList } from '../ui/components';
+import { ChatThread, cx, DigestView, Empty, Heatmap, JobBar, OfficialSummaryView, SearchResults, SegmentList, TraceList } from '../ui/components';
 import { useChat, useEvents, useSettings, useVideo } from '../ui/hooks';
 
 type Route = { name: 'library' } | { name: 'video'; id: string } | { name: 'traces' };
@@ -113,7 +113,7 @@ function LibraryView() {
                     {v.owner && <span>{v.owner}</span>}
                     <span>{formatTime(v.durationSec)}</span>
                     {v.waterSec !== undefined && v.durationSec > 0 && <span className="chip bg-bili-pink/10 text-bili-pink">干货 {Math.round((1 - v.waterSec / v.durationSec) * 100)}%</span>}
-                    {v.jobStatus && v.jobStatus !== 'done' && <span className="chip bg-amber-50 text-amber-600">{v.jobStatus === 'partial' ? '部分完成' : v.jobStatus === 'failed' ? '失败' : v.jobStatus === 'running' || v.jobStatus === 'fetching' ? '分析中' : '未完成'}</span>}
+                    {v.jobStatus && v.jobStatus !== 'done' && <span className="chip bg-amber-50 text-amber-600">{v.jobStatus === 'failed' ? '失败' : v.jobStatus === 'running' || v.jobStatus === 'fetching' ? '分析中' : '未完成'}</span>}
                   </div>
                   {v.tldr && <p className="line-clamp-2 text-[12px] text-slate-500">{v.tldr}</p>}
                 </div>
@@ -137,7 +137,7 @@ function VideoView({ id }: { id: string }) {
   const [filter, setFilter] = useState('');
 
   useEffect(() => {
-    if (tab === 'transcript' && !lines) void send<CaptionLine[]>({ type: 'GET_CAPTIONS', videoId: id }).then(setLines);
+    if ((tab === 'transcript' || tab === 'chat') && !lines) void send<CaptionLine[]>({ type: 'GET_CAPTIONS', videoId: id }).then(setLines);
     if (tab === 'trace') void send<Trace[]>({ type: 'GET_TRACES', videoId: id }).then(setTraces);
   }, [tab, id, lines]);
 
@@ -214,7 +214,12 @@ function VideoView({ id }: { id: string }) {
         <div className="space-y-4">
           <section className="card p-4">
             <h2 className="mb-3 text-[14px] font-semibold">概览</h2>
-            <DigestView digest={bundle.digest} segments={bundle.segments} onSeek={seek} />
+            {bundle.segments.length > 0 ? <DigestView digest={bundle.digest} segments={bundle.segments} onSeek={seek} /> : <p className="text-[12px] text-slate-400">还没有分析。</p>}
+            {v.official && (
+              <div className="mt-4">
+                <OfficialSummaryView official={v.official} onSeek={seek} />
+              </div>
+            )}
           </section>
           <section className="card p-4">
             <h2 className="mb-3 text-[14px] font-semibold">全部片段</h2>
@@ -242,7 +247,7 @@ function VideoView({ id }: { id: string }) {
                   回答里的时间戳可以点击，会跳到 B 站对应位置。也可以问“我以前看的视频里谁讲过 X”。
                 </Empty>
               ) : (
-                <ChatThread turns={chat.turns} live={chat.live} error={chat.error} onSeek={seek} />
+                <ChatThread turns={chat.turns} live={chat.live} error={chat.error} lineTime={(line, b) => (b && b !== v.bvid ? undefined : lines?.[line]?.from)} onSeek={seek} />
               )
             ) : tab === 'transcript' ? (
               <div className="space-y-2">

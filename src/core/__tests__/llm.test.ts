@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { runAgent, type AgentEvent } from '../agent/agent';
-import { isCitationGrounded, parseCitations } from '../agent/citations';
-import { createOpenAICompatClient, redact } from '../llm/openaiCompat';
+import { createOpenAICompatClient, redact, stripControlTokens } from '../llm/openaiCompat';
+import { callCost, isDeepSeekPeak } from '../llm/pricing';
 import { chatJson } from '../llm/json';
 import type { ChatRequest, ChatResult, LlmClient } from '../llm/types';
-import { LlmError } from '../llm/types';
-import { buildPassages, cleanCaptions } from '../transcript/captions';
-import { HybridRetriever } from '../retrieval/hybrid';
 import { Tracer, tracedClient, traceTotals } from '../trace/tracer';
 
 const jsonResponse = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -97,7 +93,7 @@ describe('chatJson', () => {
     const client: LlmClient = {
       model: 'm',
       async chat(req: ChatRequest): Promise<ChatResult> {
-        return { content: replies.shift()!, toolCalls: [], usage: { promptTokens: 0, completionTokens: 0, estimated: true }, model: 'm', latencyMs: 0, finishReason: req.purpose ?? '' };
+        return { content: replies.shift()!, reasoning: '', toolCalls: [], usage: { promptTokens: 0, completionTokens: 0, estimated: true }, model: 'm', latencyMs: 0, finishReason: req.purpose ?? '' };
       }
     };
     const out = await chatJson(client, { messages: [], purpose: 't' }, (raw) => (raw as { n: number }).n);
@@ -105,69 +101,86 @@ describe('chatJson', () => {
   });
 });
 
-describe('citations', () => {
-  it('parses current-video and cross-video citations', () => {
-    const c = parseCitations('先说结论 [3:25]，另见 [BV1xx411c7mD 1:02:03]。');
-    expect(c.map((x) => [x.bvid, x.time])).toEqual([
-      [undefined, 205],
-      ['BV1xx411c7mD', 3723]
-    ]);
+describe('deepseek thinking and usage', () => {
+  it('sends thinking controls only to providers that understand them', async () => {
+    const bodies: any[] = [];
+    const make = (style: 'deepseek' | 'none') =>
+      createOpenAICompatClient({
+        baseUrl: 'https://x',
+        model: 'm',
+        reasoning: 'off',
+        reasoningStyle: style,
+        fetchImpl: async (_u, init) => {
+          bodies.push(JSON.parse(String(init?.body)));
+          return okChat('ok');
+        }
+      });
+    await make('deepseek').chat({ messages: [] });
+    await make('deepseek').chat({ messages: [], reasoning: 'low' });
+    await make('none').chat({ messages: [], reasoning: 'low' });
+    expect(bodies[0].thinking).toEqual({ type: 'disabled' });
+    expect(bodies[1]).toMatchObject({ thinking: { type: 'enabled' }, reasoning_effort: 'low' });
+    expect(bodies[2].thinking).toBeUndefined();
+    expect(bodies[2].reasoning_effort).toBeUndefined();
   });
-  it('only accepts timestamps inside retrieved spans', () => {
-    const [c] = parseCitations('[5:00]');
-    expect(isCitationGrounded(c, [{ start: 290, end: 320 }], 'BVa')).toBe(true);
-    expect(isCitationGrounded(c, [{ start: 0, end: 60 }], 'BVa')).toBe(false);
+
+  it('sends reasoning_content back only on assistant turns that made tool calls', async () => {
+    let sent: any;
+    const client = createOpenAICompatClient({
+      baseUrl: 'https://x',
+      model: 'm',
+      fetchImpl: async (_u, init) => {
+        sent = JSON.parse(String(init?.body));
+        return okChat('ok');
+      }
+    });
+    await client.chat({
+      messages: [
+        { role: 'assistant', content: 'plain', reasoning_content: 'drop me' },
+        { role: 'assistant', content: null, reasoning_content: 'keep me', tool_calls: [{ id: 'c', type: 'function', function: { name: 'f', arguments: '{}' } }] }
+      ]
+    });
+    expect(sent.messages[0].reasoning_content).toBeUndefined();
+    expect(sent.messages[1].reasoning_content).toBe('keep me');
   });
-});
 
-const lines = cleanCaptions([
-  { from: 0, to: 4, content: '大家好欢迎来到频道' },
-  { from: 100, to: 104, content: '炒糖色要用冰糖小火慢炒' },
-  { from: 104, to: 108, content: '炒到枣红色冒小泡就下肉' }
-]);
-const env = {
-  video: { videoId: 'v', bvid: 'BVaaaaaaaaaa', aid: 1, cid: 1, page: 1, title: '红烧肉', durationSec: 200 },
-  lines,
-  segments: [],
-  digest: null,
-  searchVideo: async (q: string, k: number) => new HybridRetriever(buildPassages('v', lines)).search(q, null, { k })
-};
+  it('strips leaked control tokens and reads cache and reasoning usage', async () => {
+    expect(stripControlTokens('{"ok":<|endoftext|>true}')).toBe('{"ok":true}');
+    const client = createOpenAICompatClient({
+      baseUrl: 'https://x',
+      model: 'deepseek-flash',
+      fetchImpl: async () =>
+        jsonResponse({
+          model: 'deepseek-flash',
+          choices: [{ message: { content: '{"a":<|endoftext|>1}', reasoning_content: '想一想' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1000, completion_tokens: 200, prompt_cache_hit_tokens: 800, completion_tokens_details: { reasoning_tokens: 50 } }
+        })
+    });
+    const out = await client.chat({ messages: [] });
+    expect(out.content).toBe('{"a":1}');
+    expect(out.reasoning).toBe('想一想');
+    expect(out.usage).toMatchObject({ promptTokens: 1000, cachedTokens: 800, reasoningTokens: 50, estimated: false });
+  });
 
-function scripted(responses: Array<Partial<ChatResult> | Error>): LlmClient {
-  return {
-    model: 'm',
-    async chat(): Promise<ChatResult> {
-      const r = responses.shift()!;
-      if (r instanceof Error) throw r;
-      return { content: '', toolCalls: [], usage: { promptTokens: 1, completionTokens: 1, estimated: false }, model: 'm', latencyMs: 1, finishReason: 'stop', ...r };
-    }
-  };
-}
+  it('prices calls with cache hits and peak hours, and totals them in traces', async () => {
+    const usage = { promptTokens: 1_000_000, completionTokens: 1_000_000, cachedTokens: 500_000, estimated: false };
+    const offPeak = new Date('2026-11-28T12:00:00Z'); // Saturday
+    const peak = new Date('2026-11-26T02:00:00Z'); // Thursday 02:00 UTC
+    expect(isDeepSeekPeak(offPeak)).toBe(false);
+    expect(isDeepSeekPeak(peak)).toBe(true);
+    expect(callCost('deepseek-flash', usage, offPeak)).toBeCloseTo(0.5 * 0.15 + 0.5 * 0.003 + 0.6, 6);
+    expect(callCost('deepseek-flash', usage, peak)).toBeCloseTo(2 * (0.5 * 0.15 + 0.5 * 0.003 + 0.6), 6);
+    expect(callCost('unknown-model', usage)).toBeUndefined();
 
-describe('agent', () => {
-  it('calls tools, then answers with grounded citations', async () => {
-    const events: AgentEvent[] = [];
-    const tracer = new Tracer({ kind: 'chat', videoId: 'v', title: 'q' });
+    const tracer = new Tracer({ kind: 'chat', videoId: 'v', title: 't' });
     const llm = tracedClient(
-      scripted([
-        { toolCalls: [{ id: 'c1', type: 'function', function: { name: 'search_transcript', arguments: '{"query":"糖色"}' } }] },
-        { content: '用冰糖小火慢炒，炒到枣红色就下肉 [1:40]。开头寒暄见 [0:02]。' }
-      ]),
+      { model: 'deepseek-flash', chat: async () => ({ content: 'x', reasoning: '', toolCalls: [], usage: { promptTokens: 100, completionTokens: 10, cachedTokens: 60, estimated: false }, model: 'deepseek-flash', latencyMs: 1, finishReason: 'stop' }) },
       tracer
     );
-    const out = await runAgent({ llm, env, question: '糖色怎么炒', tracer, onEvent: (e) => events.push(e) });
-    expect(out.mode).toBe('agent');
-    expect(out.steps).toBe(2);
-    expect(out.citations.find((c) => c.time === 100)?.grounded).toBe(true);
-    expect(out.citations.find((c) => c.time === 2)?.grounded).toBe(false);
-    expect(events.map((e) => e.type)).toEqual(['tool_call', 'tool_result', 'final']);
-    expect(traceTotals(tracer.finish()).llmCalls).toBe(2);
-  });
-
-  it('falls back to single-pass RAG when the provider rejects tools', async () => {
-    const llm = scripted([new LlmError('HTTP 400: tools is not supported', 400), { content: '冰糖小火 [1:40]' }]);
-    const out = await runAgent({ llm, env, question: '糖色怎么炒' });
-    expect(out.mode).toBe('rag');
-    expect(out.citations[0].grounded).toBe(true);
+    await llm.chat({ messages: [] });
+    await llm.chat({ messages: [] });
+    const t = traceTotals(tracer.finish());
+    expect(t).toMatchObject({ llmCalls: 2, promptTokens: 200, cachedTokens: 120, completionTokens: 20 });
+    expect(t.costUsd).toBeGreaterThan(0);
   });
 });

@@ -1,5 +1,6 @@
 import type { ChatRequest, ChatResult, LlmClient } from '../llm/types';
 import { redact } from '../llm/openaiCompat';
+import { callCost } from '../llm/pricing';
 
 export type SpanKind = 'stage' | 'llm' | 'tool' | 'retrieval' | 'embed';
 
@@ -28,7 +29,10 @@ export interface Trace {
 export interface TraceTotals {
   llmCalls: number;
   promptTokens: number;
+  cachedTokens: number;
   completionTokens: number;
+  /** USD, summed over calls whose model price is known. */
+  costUsd: number;
   llmMs: number;
   errors: number;
   wallMs: number;
@@ -104,10 +108,14 @@ export function tracedClient(client: LlmClient, tracer: Tracer): LlmClient {
         'llm',
         async (span) => {
           const out = await client.chat(req, onDelta);
+          const cost = callCost(req.model ?? client.model, out.usage);
           Object.assign(span.attrs, {
             model: out.model,
             promptTokens: out.usage.promptTokens,
+            cachedTokens: out.usage.cachedTokens ?? 0,
             completionTokens: out.usage.completionTokens,
+            reasoningTokens: out.usage.reasoningTokens ?? 0,
+            ...(cost !== undefined ? { costUsd: Number(cost.toFixed(6)) } : {}),
             estimated: out.usage.estimated,
             toolCalls: out.toolCalls.length,
             finish: out.finishReason
@@ -131,7 +139,9 @@ export function traceTotals(trace: Trace): TraceTotals {
   return {
     llmCalls: llm.length,
     promptTokens: llm.reduce((a, s) => a + Number(s.attrs.promptTokens ?? 0), 0),
+    cachedTokens: llm.reduce((a, s) => a + Number(s.attrs.cachedTokens ?? 0), 0),
     completionTokens: llm.reduce((a, s) => a + Number(s.attrs.completionTokens ?? 0), 0),
+    costUsd: llm.reduce((a, s) => a + Number(s.attrs.costUsd ?? 0), 0),
     llmMs: llm.reduce((a, s) => a + ((s.end ?? s.start) - s.start), 0),
     errors: trace.spans.filter((s) => s.status === 'error').length,
     wallMs: (trace.endedAt ?? Date.now()) - trace.startedAt

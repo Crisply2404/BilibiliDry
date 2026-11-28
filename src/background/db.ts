@@ -4,10 +4,8 @@ import type { CaptionLine, Segment, VideoDigest } from '../core/types';
 import type { ChatTurnRecord, JobState, VideoRecord } from '../shared/protocol';
 
 export interface JobRecord extends JobState {
-  /** Checkpoint: segments of finished chunks, keyed by chunk index. */
-  done: Record<number, Segment[]>;
-  /** Analysis config the checkpoint was produced with; a resume is only valid under the same config. */
-  configKey: string;
+  /** Checkpoint: segments finished so far, in order from line 0. An interrupted run continues after the last one. */
+  partial: Segment[];
 }
 
 interface Schema extends DBSchema {
@@ -24,18 +22,25 @@ interface Schema extends DBSchema {
 let dbPromise: Promise<IDBPDatabase<Schema>> | null = null;
 
 export function db(): Promise<IDBPDatabase<Schema>> {
-  dbPromise ??= openDB<Schema>('bilibilidry', 1, {
-    upgrade(d) {
-      d.createObjectStore('videos', { keyPath: 'videoId' }).createIndex('byAdded', 'addedAt');
-      d.createObjectStore('captions', { keyPath: 'videoId' });
-      d.createObjectStore('segments', { keyPath: 'videoId' });
-      d.createObjectStore('digests', { keyPath: 'videoId' });
-      d.createObjectStore('jobs', { keyPath: 'videoId' });
-      d.createObjectStore('vectors', { keyPath: 'key' }).createIndex('byVideo', 'videoId');
-      const t = d.createObjectStore('traces', { keyPath: 'id' });
-      t.createIndex('byVideo', 'videoId');
-      t.createIndex('byStart', 'startedAt');
-      d.createObjectStore('chats', { keyPath: 'videoId' });
+  dbPromise ??= openDB<Schema>('bilibilidry', 2, {
+    upgrade(d, oldVersion, _newVersion, tx) {
+      if (oldVersion < 1) {
+        d.createObjectStore('videos', { keyPath: 'videoId' }).createIndex('byAdded', 'addedAt');
+        d.createObjectStore('captions', { keyPath: 'videoId' });
+        d.createObjectStore('segments', { keyPath: 'videoId' });
+        d.createObjectStore('digests', { keyPath: 'videoId' });
+        d.createObjectStore('jobs', { keyPath: 'videoId' });
+        d.createObjectStore('vectors', { keyPath: 'key' }).createIndex('byVideo', 'videoId');
+        const t = d.createObjectStore('traces', { keyPath: 'id' });
+        t.createIndex('byVideo', 'videoId');
+        t.createIndex('byStart', 'startedAt');
+        d.createObjectStore('chats', { keyPath: 'videoId' });
+      }
+      if (oldVersion === 1) {
+        // Version 1 kept per-chunk checkpoints and transcripts from an unverified subtitle source.
+        void tx.objectStore('jobs').clear();
+        void tx.objectStore('captions').clear();
+      }
     }
   });
   return dbPromise;
@@ -114,11 +119,12 @@ export async function listTraces(videoId?: string, limit = 50): Promise<Trace[]>
   return all.sort((a, b) => b.startedAt - a.startedAt).slice(0, limit);
 }
 
-export async function getChat(videoId: string): Promise<ChatTurnRecord[]> {
-  return (await (await db()).get('chats', videoId))?.turns ?? [];
+/** Chat threads are keyed by videoId, or 'library' for the cross-video thread. */
+export async function getChat(key: string): Promise<ChatTurnRecord[]> {
+  return (await (await db()).get('chats', key))?.turns ?? [];
 }
-export async function putChat(videoId: string, turns: ChatTurnRecord[]) {
-  await (await db()).put('chats', { videoId, turns: turns.slice(-60) });
+export async function putChat(key: string, turns: ChatTurnRecord[]) {
+  await (await db()).put('chats', { videoId: key, turns: turns.slice(-60) });
 }
 
 export async function deleteVideo(videoId: string) {

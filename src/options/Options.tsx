@@ -61,7 +61,7 @@ export function Options() {
   const choosePreset = (id: string) => {
     const p = findPreset(id);
     if (!p) return;
-    set({ provider: id, baseUrl: p.baseUrl || draft.baseUrl, model: p.model || draft.model, cheapModel: p.cheapModel ?? '', embeddingModel: p.embeddingModel ?? '' });
+    set({ provider: id, baseUrl: p.baseUrl || draft.baseUrl, model: p.model || draft.model, embeddingModel: p.embeddingModel ?? '' });
   };
 
   const saveAndTest = async () => {
@@ -84,7 +84,7 @@ export function Options() {
           <h1 className="text-2xl font-bold">
             Bilibili<span className="text-bili-pink">Dry</span> 设置
           </h1>
-          <p className="mt-1 text-[13px] text-slate-500">B 站长视频 AI 助手：干货热力图、跳过注水、带出处的视频问答、跨视频知识库。</p>
+          <p className="mt-1 text-[13px] text-slate-500">B 站自己的 AI 总结不用配置就能看；配置一个模型后，还能标出注水、一键跳过、向视频和整个知识库提问。</p>
         </div>
         <button className="btn-outline" onClick={() => void send({ type: 'OPEN_DASHBOARD' })}>
           打开知识库
@@ -104,7 +104,7 @@ export function Options() {
         </div>
         {preset?.note && <p className="text-[12px] text-slate-500">{preset.note}</p>}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="接口地址（Base URL）" hint="OpenAI 兼容接口，一般以 /v1 结尾">
+          <Field label="接口地址（Base URL）" hint="OpenAI 兼容接口">
             <input className="input" value={draft.baseUrl} onChange={(e) => set({ baseUrl: e.target.value })} placeholder="https://api.example.com/v1" />
           </Field>
           <Field
@@ -126,13 +126,24 @@ export function Options() {
               </button>
             </div>
           </Field>
-          <Field label="主模型" hint="用于章节总结、证据核对、重点精修和问答 Agent（需支持工具调用效果最好）">
-            <input className="input" value={draft.model} onChange={(e) => set({ model: e.target.value })} />
+          <Field label="模型" hint="整片分析和问答都用它；需要能一次读完整个视频的字幕（上下文越长越好）">
+            <input className="input" list="bdry-models" value={draft.model} onChange={(e) => set({ model: e.target.value })} />
+            <datalist id="bdry-models">
+              {(preset?.models ?? [preset?.model ?? '']).filter(Boolean).map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
           </Field>
-          <Field label="分块模型（可选）" hint="每个视频要调用几十次，填一个便宜快速的模型能省很多钱；留空则用主模型">
-            <input className="input" value={draft.cheapModel} onChange={(e) => set({ cheapModel: e.target.value })} />
-          </Field>
-          <Field label="Embedding 模型（可选）" hint="填了会开启“关键词 + 向量”混合检索，换个说法提问也能找到；留空只用关键词检索（BM25）">
+          {preset?.reasoningStyle && (
+            <Field label="思考深度" hint="关闭最快最便宜；开得越深越慢、输出越贵">
+              <select className="input" value={draft.reasoning} onChange={(e) => set({ reasoning: e.target.value as Settings['reasoning'] })}>
+                <option value="off">关闭（推荐）</option>
+                <option value="low">浅</option>
+                <option value="high">深</option>
+              </select>
+            </Field>
+          )}
+          <Field label="Embedding 模型（可选）" hint="只影响知识库搜索：填了会在关键词检索之外再加语义检索；留空只用关键词">
             <input className="input" value={draft.embeddingModel} onChange={(e) => set({ embeddingModel: e.target.value })} />
           </Field>
         </div>
@@ -151,7 +162,7 @@ export function Options() {
 
       <section className="card space-y-4 p-5">
         <h2 className="text-[15px] font-semibold">观看体验</h2>
-        <Toggle checked={draft.autoAnalyze} onChange={(v) => set({ autoAnalyze: v })} label="打开视频时自动分析" hint="关闭时需要在视频页点“分析这个视频”，更省钱" />
+        <Toggle checked={draft.autoAnalyze} onChange={(v) => set({ autoAnalyze: v })} label="打开视频时自动分析" hint="关闭时在侧边栏点“分析这个视频”，更省钱" />
         <Toggle checked={draft.autoSkip} onChange={(v) => set({ autoSkip: v })} label="自动跳过注水" hint="播放到下面勾选的类型时自动跳过，屏幕底部会出现“撤销”" />
         <div className="flex flex-wrap gap-2 pl-12">
           {WATER_REASONS.map((r) => {
@@ -163,20 +174,12 @@ export function Options() {
             );
           })}
         </div>
-        <Toggle checked={draft.showStrip} onChange={(v) => set({ showStrip: v })} label="在播放器底部显示热力条" />
+        <Toggle checked={draft.showOnProgress} onChange={(v) => set({ showOnProgress: v })} label="在 B 站进度条上标出干货和注水" hint="没分析过的视频会标出 B 站 AI 总结的章节位置" />
       </section>
 
       <section className="card space-y-4 p-5">
         <h2 className="text-[15px] font-semibold">高级</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={`分块长度：${draft.chunkSec} 秒`} hint="越短热力图越细、调用次数越多">
-            <input type="range" min={60} max={240} step={15} value={draft.chunkSec} onChange={(e) => set({ chunkSec: Number(e.target.value) })} className="w-full accent-bili-pink" />
-          </Field>
-          <Field label={`并发请求：${draft.concurrency}`} hint="遇到 429 限流就调小">
-            <input type="range" min={1} max={6} value={draft.concurrency} onChange={(e) => set({ concurrency: Number(e.target.value) })} className="w-full accent-bili-pink" />
-          </Field>
-        </div>
-        <Toggle checked={draft.developerMode} onChange={(v) => set({ developerMode: v })} label="开发者模式" hint="在视频页和工作台显示每次分析、问答的调用链路（Trace）：耗时、token、错误" />
+        <Toggle checked={draft.developerMode} onChange={(v) => set({ developerMode: v })} label="开发者模式" hint="在侧边栏和工作台显示每次分析、问答的调用记录：耗时、token、缓存命中、费用、错误" />
       </section>
 
       <section className="card space-y-3 p-5">
@@ -186,7 +189,7 @@ export function Options() {
         <ul className="list-disc space-y-1 pl-5 text-[13px] text-slate-600">
           <li>没有服务器。字幕和问题只会发给你在上面填写的模型服务。</li>
           <li>API Key、分析结果、对话记录都只保存在本机浏览器（chrome.storage 与 IndexedDB）。</li>
-          <li>读取字幕时会带上你的 B 站登录状态，仅用于请求 B 站官方接口。</li>
+          <li>读取字幕和 B 站 AI 总结时会带上你的 B 站登录状态，只用于请求 B 站自己的接口，每个视频只请求一次并缓存。</li>
         </ul>
         <div className="flex items-center gap-3 text-[12px] text-slate-500">
           {stats && (
@@ -217,7 +220,7 @@ export function Options() {
             <button
               className="btn-primary"
               onClick={() => {
-                const providerKeys: Array<keyof Settings> = ['baseUrl', 'apiKey', 'model', 'cheapModel', 'embeddingModel'];
+                const providerKeys: Array<keyof Settings> = ['baseUrl', 'apiKey', 'model', 'embeddingModel'];
                 if (saved && providerKeys.some((k) => draft[k] !== saved[k])) void saveAndTest();
                 else void save(draft);
               }}

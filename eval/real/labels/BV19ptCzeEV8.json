@@ -1,0 +1,28 @@
+{
+  "bvid": "BV19ptCzeEV8",
+  "note": "动画科普，节奏紧，注水只有中间求赞和结尾。",
+  "water": [
+    { "start": 419, "end": 438, "reason": "smalltalk", "note": "计划每月更新 + 求点赞" },
+    { "start": 573, "end": 589, "reason": "smalltalk", "note": "结尾致谢" }
+  ],
+  "ambiguous": [
+    { "start": 33, "end": 48, "note": "本期内容预告" },
+    { "start": 528, "end": 548, "note": "物价数据库网站介绍，偏推荐" }
+  ],
+  "key": [
+    { "start": 48, "end": 112, "note": "供给曲线、需求曲线、均衡价格" },
+    { "start": 171, "end": 205, "note": "垄断市场：钻石营销让需求右移、减少供给提价" },
+    { "start": 233, "end": 288, "note": "CPI 的定义、统计方式、权重例子" },
+    { "start": 297, "end": 341, "note": "CPI 不等于通胀率的原因" },
+    { "start": 351, "end": 379, "note": "核心 CPI" },
+    { "start": 438, "end": 508, "note": "PPI 的构成及向 CPI 的传导" }
+  ],
+  "questions": [
+    { "q": "CPI 里每样商品的权重是怎么算的？", "gold": [[258, 288]], "answer": "按消费支出占比：4000 元里猪肉花 200 元，权重 5%；猪肉涨 20%，个人 CPI 涨 1%", "style": "lexical" },
+    { "q": "为什么官方 CPI 的涨幅和大家的直观感受对不上？", "gold": [[297, 341]], "answer": "CPI 是全国平均；统计的商品每 5 年才调整，覆盖不到新兴消费；不包含房价", "style": "paraphrase" },
+    { "q": "什么是核心 CPI？", "gold": [[351, 379]], "answer": "把受季节和国际形势影响大的食品和能源剔除后的 CPI", "style": "lexical" },
+    { "q": "视频是怎么解释钻石贵的？", "gold": [[171, 205]], "answer": "垄断者把石头取名钻石，把它和爱情、身份绑定，让需求曲线右移，同时减少供给、提高价格", "style": "paraphrase" },
+    { "q": "上游原材料涨价会怎么影响老百姓的物价？", "gold": [[478, 508]], "answer": "上游价格传导到加工业，再传导到生活资料，也就是 PPI 传导到 CPI；但消费需求不足时 CPI 可能不跟着变", "style": "paraphrase" },
+    { "q": "视频有没有讲 GDP 怎么计算？", "gold": [], "answer": "没有讲到 GDP", "style": "absent" }
+  ]
+}

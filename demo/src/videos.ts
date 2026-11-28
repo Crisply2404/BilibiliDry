@@ -16,13 +16,11 @@ export interface BlockNote {
 }
 
 /**
- * A prepared answer. `steps` are the tool calls the scripted model makes, one
- * array per agent step; `answer` may cite `{blockId}`, which becomes a
- * timestamp inside whatever evidence the tools actually returned.
+ * A prepared answer to a question about one video. `answer` may cite `{blockId}`, which becomes
+ * a `[La-Lb]` citation of that block's caption lines.
  */
 export interface PreparedAnswer {
   match: RegExp;
-  steps: Array<Array<{ name: string; args: Record<string, unknown> }>>;
   answer: string;
 }
 
@@ -34,12 +32,12 @@ export interface DemoVideo {
   media: string;
   built: BuiltFixture;
   notes: Record<string, BlockNote>;
+  /** What Bilibili's own AI summary says about the video (shown without a key). */
+  official: string;
   digest: { tldr: string; takeaways: string[]; chapters: Array<{ block: string; title: string; summary: string }> };
   /** Answer to "有没有提到具体的数据或例子？", one of the overlay's suggested questions. */
   answers: PreparedAnswer[];
 }
-
-const search = (query: string, k = 5) => ({ name: 'search_transcript', args: { query, k } });
 
 export const DEMO_VIDEOS: DemoVideo[] = [
   {
@@ -49,6 +47,7 @@ export const DEMO_VIDEOS: DemoVideo[] = [
     owner: '示例UP · 代码',
     media: 'media/agent-intro.mp4',
     built: buildFixture(agentIntro),
+    official: '介绍 Agent 的定义与 ReAct 循环，讲解函数调用、工具设计、短期与长期记忆、混合检索，并强调评测集和成本控制的重要性。',
     notes: {
       greet: { title: '开场寒暄', summary: 'UP 主打招呼，聊了几句天气和感冒，然后进入正题。', importance: 1 },
       definition: {
@@ -120,41 +119,34 @@ export const DEMO_VIDEOS: DemoVideo[] = [
     answers: [
       {
         match: /数据|数字|例子|举例/,
-        steps: [[search('二零二二年 论文'), search('五十条 评测')], [search('五六次 贵'), search('九十九元')]],
         answer:
           '提到了几处具体的数字：\n\n- ReAct 的论文是二零二二年发的 {react}\n- 评测建议先手工标注五十条真实问题，每次改动都跑一遍 {eval}\n- Agent 一轮可能调用模型五六次，比普通问答贵好几倍 {cost}\n- 云服务器新用户首年九十九元 {sponsor}，不过这段是广告\n\n例子方面，UP 主用专有名词、人名、数字说明关键词检索 BM25 有时比向量检索更准 {rag}。'
       },
       {
         match: /ReAct|推理加行动/i,
-        steps: [[search('ReAct 推理 行动')]],
         answer:
           'ReAct 就是“推理加行动” {react}：\n\n1. 模型先写一段思考，再选一个工具和参数；\n2. 程序执行工具，把观察结果拼回上下文；\n3. 模型接着思考，一轮一轮下去，直到认为信息够了才给最终答案。\n\nUP 主还提到，现在几乎所有 Agent 框架的核心循环都是这个结构 {react}。'
       },
       {
         match: /检索|RAG|BM25|向量|RRF/i,
-        steps: [[search('向量检索 关键词检索 BM25'), search('长期记忆 向量数据库')]],
         answer:
           '视频的建议是别只做向量检索：\n\n- 专有名词、人名、数字这类内容，关键词检索 BM25 反而更准 {rag}\n- 比较稳的做法是混合检索：关键词和向量各召回一批，用 RRF 倒数排名融合，最后可以再接一个重排模型 {rag}\n\n前面讲记忆时也提到，长期记忆存在向量数据库里、需要时检索出来，本质上就是 RAG {memory}。'
       },
       {
         match: /评测|变好|变差|提示词|prompt/i,
-        steps: [[search('评测集 变好 变差')]],
         answer:
           '靠评测集 {eval}：\n\n- 先手工标注五十条真实问题，记录每条的正确答案在哪里；\n- 每次改动都跑一遍，看召回率、答案准确率和平均调用次数。\n\nUP 主说这是最容易被忽略的一点，没有评测集就不知道改了提示词之后是变好了还是变差了 {eval}。'
       },
       {
         match: /成本|花费|省钱|便宜|贵/,
-        steps: [[search('成本 省钱 小模型 大模型')]],
         answer: '用大小模型级联 {cost}：便宜的小模型做路由和初筛，只有难的步骤才交给大模型。原因是 Agent 一轮可能调用模型五六次，比普通问答贵好几倍 {cost}。'
       },
       {
         match: /工具.*(设计|怎么写)|设计.*工具/,
-        steps: [[search('设计工具 经验')]],
         answer: '视频给了三个经验 {tool-design}：\n\n1. 工具描述要写清楚什么时候该用，模型是靠描述来选工具的；\n2. 返回结果要短，只返回模型需要的信息，不然上下文很快就爆了；\n3. 参数尽量少，能用默认值就用默认值。\n\n后面还有一段把这三点又重复了一遍，可以跳过 {repeat1}。'
       },
       {
         match: /赞助|广告|服务器/,
-        steps: [[search('赞助商 云服务器')]],
         answer: '赞助商是某某云服务器：新用户首年九十九元，两核四 G、带宽五兆，评论区置顶有专属链接，用优惠码还能再打八折 {sponsor}。这一段是广告，可以直接跳过。'
       }
     ]
@@ -166,6 +158,7 @@ export const DEMO_VIDEOS: DemoVideo[] = [
     owner: '示例UP · 厨房',
     media: 'media/braised-pork.mp4',
     built: buildFixture(braisedPork),
+    official: '家常红烧肉做法：选五层五花肉，冷水焯水后温水冲洗，小火炒糖色，加开水炖一小时，最后大火收汁，并分享土豆、加醋等防腻技巧。',
     notes: {
       intro: { title: '开场寒暄', summary: '老王打招呼，说评论区好多人催更红烧肉。', importance: 1 },
       'choose-meat': {
@@ -227,33 +220,27 @@ export const DEMO_VIDEOS: DemoVideo[] = [
     answers: [
       {
         match: /数据|数字|例子|举例|用量|多少/,
-        steps: [[search('三厘米 两分钟'), search('三十克 冰糖')], [search('一个小时'), search('一斤半')]],
         answer:
           '提到的具体用量和时间：\n\n- 五花肉一斤半左右，够一家三口吃 {choose-meat}\n- 切成三厘米左右的方块，水开以后再煮两分钟 {blanch}\n- 冰糖三十克，小火炒到枣红色 {sugar}\n- 生抽一勺、老抽半勺，八角两个、香叶两片，小火炖一个小时 {stew}'
       },
       {
         match: /糖色|发苦|苦/,
-        steps: [[search('炒糖色 冰糖 发苦')]],
         answer: '关键是小火 {sugar}：锅里放少量油，加三十克冰糖小火慢炒，炒到冰糖化开、颜色变成枣红色、冒小泡泡时马上下肉。火大了糖会发苦，颜色太浅又上不了色，这一步要盯紧 {sugar}。'
       },
       {
         match: /开水|冷水|温水/,
-        steps: [[search('开水 冷水'), search('温水冲洗')]],
         answer: '视频里有两处讲水温：\n\n- 焯完水捞出来要用温水冲，千万别用冷水，冷水一激肉会发紧，后面就炖不烂了 {blanch}\n- 炖的时候要加开水、没过肉，加冷水肉会变柴 {stew}'
       },
       {
         match: /多久|炖好|熟了|时间/,
-        steps: [[search('炖 一个小时'), search('筷子 戳透')]],
         answer: '大火烧开后转小火，盖上盖子炖一个小时 {stew}。判断标准是用筷子能轻松戳透，然后开大火收汁 {reduce}。'
       },
       {
         match: /腻|油/,
-        steps: [[search('怕腻 解腻')]],
         answer: '视频给了两个办法 {tips}：\n\n- 炖的时候放几块土豆或鹌鹑蛋一起炖，能吸掉一部分油；\n- 收汁时加一点点醋，能解腻提香，但别多，多了就酸了。'
       },
       {
         match: /香料|八角|桂皮|调料/,
-        steps: [[search('八角 桂皮 香叶')]],
         answer: '香料是八角两个、桂皮一小块、香叶两片，调味用一勺生抽、半勺老抽 {stew}。'
       }
     ]

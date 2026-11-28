@@ -97,24 +97,76 @@ a {
   color: var(--ink);
 }
 
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  align-items: start;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
 .page {
   display: grid;
   gap: 16px;
-  max-width: 1280px;
-  margin: 0 auto;
+  min-width: 0;
   padding: 16px;
 }
 
-/* Leave room for the extension's 380px panel, which floats at the right edge like on Bilibili. */
-@media (min-width: 1180px) {
-  .page {
-    padding-right: 420px;
+/* Chrome's side panel sits at the window's right edge; the demo shows it as a sticky column. */
+.sidepanel {
+  position: sticky;
+  top: 56px;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 56px);
+  border-left: 1px solid var(--line);
+  background: var(--card);
+}
+
+.sidepanel.flash {
+  animation: flash 1.2s ease-out;
+}
+
+@keyframes flash {
+  from {
+    box-shadow: inset 0 0 0 3px var(--pink);
+  }
+  to {
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+}
+
+.sidepanel-bar {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sidepanel-body {
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 960px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sidepanel {
+    position: static;
+    height: 78vh;
+    margin: 0 16px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
   }
 }
 
 .intro,
 .meta,
 .next {
+  min-width: 0;
   padding: 16px 18px;
   border-radius: var(--radius);
   background: var(--card);
@@ -156,6 +208,57 @@ a {
   display: block;
   width: 100%;
   height: 100%;
+  cursor: pointer;
+}
+
+.controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 14px 10px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
+  color: #fff;
+}
+
+.controls .play {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+}
+
+.progress-wrap {
+  flex: 1;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.schedule {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.schedule .played {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--blue);
+}
+
+.controls .time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .player-label {
@@ -187,7 +290,7 @@ a {
 
 .caption {
   position: absolute;
-  bottom: 56px;
+  bottom: 64px;
   left: 50%;
   max-width: 90%;
   transform: translateX(-50%);
@@ -342,13 +445,6 @@ a {
 }
 
 @media (max-width: 640px) {
-  /* On a phone the player comes first, the way video sites lay out. */
-  .player {
-    order: -2;
-  }
-  .meta {
-    order: -1;
-  }
   .topbar {
     gap: 8px;
   }
@@ -361,7 +457,11 @@ a {
     font-size: 13px;
   }
   .caption {
-    bottom: 44px;
+    bottom: 52px;
+  }
+  .controls {
+    gap: 8px;
+    padding: 14px 10px 6px;
   }
   .next-thumb {
     width: 120px;

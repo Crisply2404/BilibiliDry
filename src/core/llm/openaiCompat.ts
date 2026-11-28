@@ -1,10 +1,16 @@
 import { LlmError, type ChatRequest, type ChatResult, type LlmClient, type ToolCall, type Usage } from './types';
 
+/** How a provider expects to be told how much to think. */
+export type ReasoningStyle = 'deepseek' | 'none';
+
 export interface OpenAICompatConfig {
   baseUrl: string;
   apiKey?: string;
   model: string;
   embeddingModel?: string;
+  /** Default thinking level when a request does not set one. */
+  reasoning?: ChatRequest['reasoning'];
+  reasoningStyle?: ReasoningStyle;
   timeoutMs?: number;
   maxRetries?: number;
   fetchImpl?: typeof fetch;
@@ -24,6 +30,14 @@ export function redact(text: string): string {
     .replace(/(sk|ak|key)-[A-Za-z0-9_\-.]{8,}/gi, '$1-***')
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, 'Bearer ***')
     .replace(/AIza[0-9A-Za-z_-]{20,}/g, 'AIza***');
+}
+
+/**
+ * Strip chat-template control tokens such as `<|endoftext|>`. DeepSeek occasionally leaks
+ * one into otherwise valid output (seen inside a JSON object), which breaks parsing.
+ */
+export function stripControlTokens(text: string): string {
+  return text.replace(/<\|[a-z_]{2,40}\|>/gi, '');
 }
 
 function estimateTokens(chars: number): number {
@@ -116,30 +130,50 @@ export function createOpenAICompatClient(config: OpenAICompatConfig): LlmClient 
     }
   }
 
+  function reasoningParams(req: ChatRequest): Record<string, unknown> {
+    const level = req.reasoning ?? config.reasoning;
+    if (config.reasoningStyle !== 'deepseek' || !level) return {};
+    return level === 'off' ? { thinking: { type: 'disabled' } } : { thinking: { type: 'enabled' }, reasoning_effort: level };
+  }
+
   function buildBody(req: ChatRequest, stream: boolean): Record<string, unknown> {
+    // Messages carry reasoning_content only where the provider asked for it back (assistant turns with tool calls).
+    const messages = req.messages.map((m) => (m.reasoning_content && !(m.role === 'assistant' && m.tool_calls?.length) ? { ...m, reasoning_content: undefined } : m));
     return {
       model: req.model ?? config.model,
-      messages: req.messages,
+      messages,
       temperature: req.temperature ?? 0.2,
+      ...reasoningParams(req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
       ...(req.tools?.length ? { tools: req.tools, tool_choice: 'auto' } : {}),
       ...(req.json && jsonModeSupported && !req.tools?.length ? { response_format: { type: 'json_object' } } : {}),
-      ...(stream ? { stream: true } : {})
+      ...(stream ? { stream: true, stream_options: { include_usage: true } } : {})
     };
   }
 
   function usageFrom(raw: any, promptChars: number, completionChars: number): Usage {
     const p = Number(raw?.prompt_tokens);
     const c = Number(raw?.completion_tokens);
-    if (Number.isFinite(p) && Number.isFinite(c)) return { promptTokens: p, completionTokens: c, estimated: false };
+    if (Number.isFinite(p) && Number.isFinite(c)) {
+      const cached = Number(raw?.prompt_cache_hit_tokens ?? raw?.prompt_tokens_details?.cached_tokens);
+      const reasoning = Number(raw?.completion_tokens_details?.reasoning_tokens);
+      return {
+        promptTokens: p,
+        completionTokens: c,
+        ...(Number.isFinite(cached) ? { cachedTokens: cached } : {}),
+        ...(Number.isFinite(reasoning) ? { reasoningTokens: reasoning } : {}),
+        estimated: false
+      };
+    }
     return { promptTokens: estimateTokens(promptChars), completionTokens: estimateTokens(completionChars), estimated: true };
   }
 
-  async function readStream(res: Response, onDelta: (t: string) => void): Promise<{ content: string; toolCalls: ToolCall[]; usage: any; finishReason: string; model: string }> {
+  async function readStream(res: Response, onDelta: (t: string) => void): Promise<{ content: string; reasoning: string; toolCalls: ToolCall[]; usage: any; finishReason: string; model: string }> {
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let content = '';
+    let reasoning = '';
     let usage: any = null;
     let finishReason = '';
     let model = '';
@@ -167,9 +201,11 @@ export function createOpenAICompatClient(config: OpenAICompatConfig): LlmClient 
         if (!choice) continue;
         if (choice.finish_reason) finishReason = choice.finish_reason;
         const delta = choice.delta ?? {};
+        if (typeof delta.reasoning_content === 'string') reasoning += delta.reasoning_content;
         if (typeof delta.content === 'string' && delta.content) {
-          content += delta.content;
-          onDelta(delta.content);
+          const piece = stripControlTokens(delta.content);
+          content += piece;
+          if (piece) onDelta(piece);
         }
         for (const tc of delta.tool_calls ?? []) {
           const idx = Number(tc.index ?? 0);
@@ -182,7 +218,7 @@ export function createOpenAICompatClient(config: OpenAICompatConfig): LlmClient 
       }
     }
     const toolCalls = Array.from(calls.values()).map((c, i) => ({ ...c, id: c.id || `call_${i}` }));
-    return { content, toolCalls, usage, finishReason, model };
+    return { content, reasoning, toolCalls, usage, finishReason, model };
   }
 
   async function chat(req: ChatRequest, onDelta?: (text: string) => void): Promise<ChatResult> {
@@ -211,6 +247,7 @@ export function createOpenAICompatClient(config: OpenAICompatConfig): LlmClient 
       const out = await readStream(res, onDelta!);
       return {
         content: out.content,
+        reasoning: out.reasoning,
         toolCalls: out.toolCalls,
         usage: usageFrom(out.usage, promptChars, out.content.length + JSON.stringify(out.toolCalls).length),
         model: out.model || req.model || config.model,
@@ -222,7 +259,8 @@ export function createOpenAICompatClient(config: OpenAICompatConfig): LlmClient 
     const json: any = await res.json();
     const choice = json?.choices?.[0];
     if (!choice) throw new LlmError(`模型返回为空：${redact(JSON.stringify(json).slice(0, 200))}`);
-    const content = typeof choice.message?.content === 'string' ? choice.message.content : '';
+    const content = typeof choice.message?.content === 'string' ? stripControlTokens(choice.message.content) : '';
+    const reasoning = typeof choice.message?.reasoning_content === 'string' ? choice.message.reasoning_content : '';
     const toolCalls: ToolCall[] = (choice.message?.tool_calls ?? []).map((c: any, i: number) => ({
       id: String(c.id ?? `call_${i}`),
       type: 'function',
@@ -231,6 +269,7 @@ export function createOpenAICompatClient(config: OpenAICompatConfig): LlmClient 
     if (onDelta && content) onDelta(content);
     return {
       content,
+      reasoning,
       toolCalls,
       usage: usageFrom(json.usage, promptChars, content.length),
       model: String(json.model ?? req.model ?? config.model),

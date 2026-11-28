@@ -1,18 +1,15 @@
-import type { AgentEvent } from '../core/agent/agent';
-import type { AnalysisPhase } from '../core/analysis/pipeline';
 import type { Trace } from '../core/trace/tracer';
-import type { Citation, Segment, VideoDigest, VideoInfo } from '../core/types';
+import type { OfficialSummary, Segment, VideoDigest, VideoInfo } from '../core/types';
 import type { Settings } from './settings';
 
-export type JobStatus = 'queued' | 'fetching' | 'running' | 'done' | 'partial' | 'failed' | 'interrupted' | 'cancelled';
+export type JobStatus = 'queued' | 'fetching' | 'running' | 'done' | 'failed' | 'interrupted' | 'cancelled';
 
 export interface JobState {
   videoId: string;
   status: JobStatus;
-  phase: AnalysisPhase | 'captions';
-  chunksDone: number;
-  chunksTotal: number;
-  failedChunks: number[];
+  /** Caption lines covered by finished segments, for the progress bar. */
+  linesDone: number;
+  linesTotal: number;
   message: string;
   error?: string;
   startedAt: number;
@@ -20,10 +17,15 @@ export interface JobState {
 }
 
 export interface VideoRecord extends VideoInfo {
+  mid?: number;
   addedAt: number;
   analyzedAt?: number;
   captionCount: number;
-  captionLang?: string;
+  /** Where the transcript came from: Bilibili's AI-summary API or the player's subtitle track. */
+  transcriptSource?: 'official' | 'player';
+  /** Bilibili's own AI summary; null when the site has none for this video. */
+  official?: OfficialSummary | null;
+  officialCheckedAt?: number;
   /** Seconds marked as filler, for the library list. */
   waterSec?: number;
   segmentCount?: number;
@@ -50,15 +52,26 @@ export interface SearchResultItem {
   via: string[];
 }
 
+export interface CitationRecord {
+  raw: string;
+  bvid?: string;
+  fromLine: number;
+  toLine: number;
+  time?: number;
+  supported?: boolean;
+}
+
 export interface ChatTurnRecord {
   role: 'user' | 'assistant';
   content: string;
   at: number;
-  citations?: Array<{ raw: string; bvid?: string; time: number; grounded: boolean }>;
+  citations?: CitationRecord[];
   tools?: Array<{ name: string; summary: string; args?: Record<string, unknown> }>;
-  mode?: 'agent' | 'rag';
   error?: string;
 }
+
+/** Chat threads are kept per video, plus one for the whole library. */
+export type ChatKey = string | 'library';
 
 export type Request =
   | { type: 'GET_SETTINGS' }
@@ -66,7 +79,7 @@ export type Request =
   | { type: 'TEST_CONNECTION'; settings?: Partial<Settings> }
   | { type: 'RESOLVE_VIDEO'; bvid: string; page: number }
   | { type: 'GET_VIDEO'; videoId: string }
-  | { type: 'ANALYZE'; bvid: string; page: number; priorityTime?: number; fresh?: boolean }
+  | { type: 'ANALYZE'; bvid: string; page: number; fresh?: boolean }
   | { type: 'CANCEL'; videoId: string }
   | { type: 'LIST_LIBRARY'; query?: string }
   | { type: 'DELETE_VIDEO'; videoId: string }
@@ -74,10 +87,11 @@ export type Request =
   | { type: 'EXPORT_MARKDOWN'; videoId: string }
   | { type: 'GET_CAPTIONS'; videoId: string }
   | { type: 'GET_TRACES'; videoId?: string; limit?: number }
-  | { type: 'GET_CHAT'; videoId: string }
-  | { type: 'CLEAR_CHAT'; videoId: string }
+  | { type: 'GET_CHAT'; key: ChatKey }
+  | { type: 'CLEAR_CHAT'; key: ChatKey }
   | { type: 'OPEN_DASHBOARD'; videoId?: string }
   | { type: 'OPEN_OPTIONS' }
+  | { type: 'OPEN_SIDE_PANEL' }
   | { type: 'SEEK'; bvid: string; page: number; time: number }
   | { type: 'GET_STATS' }
   | { type: 'CLEAR_ALL' };
@@ -88,15 +102,21 @@ export type Response<T = unknown> = { ok: true; data: T } | { ok: false; error: 
 export type Push =
   | { type: 'JOB'; job: JobState }
   | { type: 'SEGMENTS'; videoId: string; segments: Segment[]; digest?: VideoDigest | null }
+  | { type: 'VIDEO'; video: VideoRecord }
   | { type: 'TRACE'; trace: Trace }
   | { type: 'LIBRARY_CHANGED' };
 
 /** Client → background over the "events" port. */
 export type PortIn = { type: 'SUBSCRIBE'; videoId: string | '*' };
 
+export type ChatEvent =
+  | { type: 'tool_call'; id: string; name: string; args: Record<string, unknown> }
+  | { type: 'tool_result'; id: string; name: string; summary: string }
+  | { type: 'delta'; text: string };
+
 /** Client ↔ background over the "chat" port. */
-export type ChatIn = { type: 'ASK'; videoId: string; question: string; currentTime?: number };
-export type ChatOut = { type: 'EVENT'; event: AgentEvent } | { type: 'ERROR'; error: string } | { type: 'SAVED'; turns: ChatTurnRecord[] };
+export type ChatIn = { type: 'ASK'; key: ChatKey; question: string; currentTime?: number };
+export type ChatOut = { type: 'EVENT'; event: ChatEvent } | { type: 'ERROR'; error: string } | { type: 'SAVED'; turns: ChatTurnRecord[] };
 
 /** Background → content script (tabs.sendMessage). */
 export type TabCommand = { type: 'SEEK_TO'; time: number };
@@ -107,5 +127,3 @@ export async function send<T = unknown>(req: Request): Promise<T> {
   if (!res.ok) throw new Error(res.error);
   return res.data;
 }
-
-export type { Citation };

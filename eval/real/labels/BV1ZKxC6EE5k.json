@@ -1,0 +1,31 @@
+{
+  "bvid": "BV1ZKxC6EE5k",
+  "note": "按价位段的购机指南，信息密；注水是开头猜机器数量、求赞和结尾互动。",
+  "water": [
+    { "start": 0, "end": 7, "reason": "smalltalk", "note": "猜桌上有多少台机器" },
+    { "start": 21, "end": 36, "reason": "smalltalk", "note": "求点赞收藏、开场口号" },
+    { "start": 1008, "end": 1037, "reason": "smalltalk", "note": "结尾互动、求赞、揭晓 85 台" }
+  ],
+  "ambiguous": [
+    { "start": 36, "end": 71, "note": "价格免责声明，提醒多平台比价" },
+    { "start": 168, "end": 176, "note": "问观众更喜欢哪台" },
+    { "start": 999, "end": 1008, "note": "推广自家数据库小程序" }
+  ],
+  "key": [
+    { "start": 71, "end": 176, "note": "1500 以下：一加 Turbo6、荣耀 X70、iQOO Z11S" },
+    { "start": 176, "end": 321, "note": "1500-2500：性能机和红米 K90 系列" },
+    { "start": 321, "end": 589, "note": "2500-3500：K100、荣耀 VRT2、一加 S7 Pro、小屏机" },
+    { "start": 589, "end": 662, "note": "3500-4500：荣耀 Magic9、Find X9s Pro" },
+    { "start": 662, "end": 772, "note": "4500-5500：不建议买新，荣耀 V2 等" },
+    { "start": 772, "end": 999, "note": "5500 以上旗舰、华为、苹果、折叠屏" }
+  ],
+  "questions": [
+    { "q": "1500 元以下推荐了哪几台手机？", "gold": [[71, 176]], "answer": "一加 Turbo6（约 1100）、荣耀 X70 换新版（1170 起）、iQOO Z11S（约 1290）", "style": "lexical" },
+    { "q": "想给家里老人买台续航好的千元机，视频推荐哪台？", "gold": [[113, 176]], "answer": "iQOO Z11S（1 万毫安电池，适合备用机或长辈）；荣耀 X70 换新版也被说适合注重续航的长辈", "style": "paraphrase" },
+    { "q": "续航测试里坚持时间最长的是哪台？", "gold": [[433, 462]], "answer": "荣耀 VRT2，12070mAh 电池，极限续航 11 小时 47 分钟，数据库登顶", "style": "paraphrase" },
+    { "q": "为什么作者不建议今年花 4500 到 5500 买新机？", "gold": [[662, 690]], "answer": "往年这个价位能买 Pro 版，今年只能买标准版，进一步或退一步都有更好的选择", "style": "paraphrase" },
+    { "q": "喜欢小屏手机的话推荐哪两台？", "gold": [[548, 590]], "answer": "vivo X300（影像）和一加 15T（性能、续航），都是 6.3 英寸，约 3300 元", "style": "lexical" },
+    { "q": "iPhone 18 Pro 系列最大的卖点是什么？", "gold": [[920, 945]], "answer": "A20 Pro 的能效非常强，还有可变光圈主摄和胶片质感等软件功能", "style": "lexical" },
+    { "q": "视频里有没有推荐平板电脑？", "gold": [], "answer": "没有讲平板", "style": "absent" }
+  ]
+}

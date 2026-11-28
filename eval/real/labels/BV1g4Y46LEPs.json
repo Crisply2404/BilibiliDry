@@ -1,0 +1,28 @@
+{
+  "bvid": "BV1g4Y46LEPs",
+  "note": "吐槽型手机盘点，几乎没有注水；中间的段子都是为了论证观点，算模糊。",
+  "water": [
+    { "start": 447, "end": 469, "reason": "smalltalk", "note": "结尾总结 + 求关注" }
+  ],
+  "ambiguous": [
+    { "start": 0, "end": 16, "note": "开场借巴菲特引出话题" },
+    { "start": 24, "end": 30, "note": "回应上期评论" },
+    { "start": 96, "end": 112, "note": "天花/非典的段子，铺垫 60Hz 吐槽" },
+    { "start": 130, "end": 174, "note": "“盲人朋友”讽刺段子，论证 17E 不适合普通人" }
+  ],
+  "key": [
+    { "start": 46, "end": 82, "note": "Pura90 标准版还用 9010S，建议调整产品线，不懂手机买 Mate" },
+    { "start": 112, "end": 130, "note": "iPhone 17E：60Hz、刘海屏、单摄、20W" },
+    { "start": 181, "end": 228, "note": "小米 17T 定位尴尬" },
+    { "start": 294, "end": 341, "note": "荣耀 600 Pro 降级处理器还涨价，元气版继续阉割" },
+    { "start": 373, "end": 413, "note": "vivo S60 用骁龙 8s Gen3，元气版用天玑 7500" }
+  ],
+  "questions": [
+    { "q": "华为 Pura90 标准版用的是什么处理器？", "gold": [[46, 64]], "answer": "麒麟 9010S（Mate80 系列已经用 9030）", "style": "lexical" },
+    { "q": "iPhone 17E 有哪些短板？", "gold": [[112, 130]], "answer": "60Hz 屏幕、刘海屏、1200 万单摄、20W 充电", "style": "lexical" },
+    { "q": "荣耀 600 Pro 跟上一代比改了什么？", "gold": [[294, 311]], "answer": "处理器从骁龙 8 Elite 降到天玑 8550，其他基本没变，价格涨到 3899", "style": "paraphrase" },
+    { "q": "作者为什么对 vivo S60 很失望？", "gold": [[373, 413]], "answer": "3599 的手机用了骁龙 8s Gen3，不如上代；元气版更是用了千元机的天玑 7500", "style": "paraphrase" },
+    { "q": "不太懂配置的人想买华为，该选哪个系列？", "gold": [[78, 87]], "answer": "Mate 系列", "style": "paraphrase" },
+    { "q": "视频里有没有评价三星手机？", "gold": [], "answer": "没有讲到三星", "style": "absent" }
+  ]
+}

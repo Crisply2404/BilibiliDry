@@ -66,19 +66,19 @@
 
 | 标签 | BilibiliDry 里对应的东西 |
 |---|---|
-| `tool-calling` | 问答 Agent 的原生 function calling，4 个工具：`search_transcript`、`read_transcript`、`get_outline`、`search_library`；服务商不支持工具调用时自动降级为单轮 RAG |
-| `harness` | ReAct 循环（最多 6 步）；分析任务按块写 checkpoint，Service Worker 被杀后从断点续跑；单块失败隔离 |
-| `rag` | 40 秒重叠字幕窗口 + 片段摘要作上下文；`Intl.Segmenter` 中文分词 BM25；可选向量；RRF 融合 + MMR 去冗余；跨视频知识库检索 |
-| `planning` | 分析流水线 map → reduce → select → verify → refine；从播放位置附近开始分析 |
-| `context-engineering` | 字幕按 `[行号\|时间]` 喂给模型，模型只回行号，时间由程序查；问答只带最近 8 轮对话 |
-| `eval` | 带标注的字幕评测集；离线检索 Recall@k / MRR（v0 对比 v1）；配置模型后跑注水识别 F1、重点覆盖率、引用命中率 |
-| `observability` | 每次分析、每轮问答记 span 级 Trace（耗时、token、错误），开发者模式可看时间线 |
-| `cost` | Model Cascade：分块用便宜模型，核查和精修只用在少数候选上；Trace 里记 token |
-| `performance` | LLM 客户端超时、指数退避、遵守 Retry-After；服务商不支持 `response_format`/流式时自动降级 |
-| `security` | API Key 只存本地，错误信息里打码；发布包扫描疑似 Key；模型服务域名按需申请权限 |
-| `engineering-practice` | TypeScript strict、35 个单元测试、真实 Chromium 端到端测试、GitHub Actions |
-| `human-in-the-loop` | 自动跳过可撤销；分析可停止、可继续；关闭面板即取消正在进行的回答 |
-| `shipped-project` | Chrome 扩展 v1.0.0 已发布 GitHub Release |
+| `tool-calling` | 跨视频知识库 Agent 的原生 function calling：`list_videos`、`search_library`、`read_transcript`；DeepSeek 开思考时把工具调用那一轮的思考内容传回 |
+| `harness` | 知识库 Agent 的工具循环（最多 6 步，最后一步强制作答）；整片分析每出一个片段就存一次，Service Worker 被杀后从断点续跑 |
+| `rag` | 只用在跨视频知识库：40 秒重叠字幕窗口 + 片段摘要；`Intl.Segmenter` 中文分词 BM25，可选向量，RRF 融合 + MMR 去冗余。单视频问答实测不检索更好（见下） |
+| `context-engineering` | 单视频问答把整份字幕放进上下文，放在 prompt 最前面且每次不变，连续提问命中前缀缓存（实测 83%）；字幕按 `[行号\|时间]` 喂给模型，模型只回行号 |
+| `planning` | 整片分析一次调用：模型读完全片，按顺序切段、判断注水、挑重点；超长视频按上下文分窗口 |
+| `eval` | 8 个真实 B 站视频、55 个问题的对照评测：分块 vs 整片分析（注水 F1 64% → 76%），检索 vs 全文问答（引用准确 59% → 76%，成本减半）；另有离线检索评测在 CI 里跑 |
+| `observability` | 每次分析、每轮问答记 span 级 Trace：耗时、token、缓存命中、费用、错误 |
+| `cost` | 整片分析 1 次调用替代 10 次；问答走前缀缓存；按 DeepSeek 价格（含高峰时段）算每次调用的费用 |
+| `performance` | LLM 客户端超时、指数退避、遵守 Retry-After；服务商不支持 `response_format`/流式时自动降级；B 站接口限流时退回备用字幕 |
+| `security` | API Key 只存本地，错误信息里打码；发布包和在线演示都扫描疑似 Key；模型服务域名按需申请权限 |
+| `engineering-practice` | TypeScript strict、50 个单元测试、真实 Chromium 端到端测试、在线演示的端到端测试、GitHub Actions |
+| `human-in-the-loop` | 自动跳过可撤销；分析可停止、可继续；关闭侧边栏即取消正在进行的回答 |
+| `shipped-project` | Chrome 扩展 + 在线演示（GitHub Pages）；B 站自己的 AI 总结不配 Key 也能用 |
 
 ## 四、收录的岗位
 

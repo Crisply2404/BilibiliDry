@@ -1,8 +1,8 @@
-import type { LlmClient } from '../llm/types';
-import type { Tracer } from '../trace/tracer';
-import { chunkCaptions, type Chunk } from '../transcript/captions';
-import type { CaptionLine, Segment, VideoDigest, VideoInfo } from '../types';
-import { runPool } from '../util/pool';
+import type { LlmClient } from '../../../src/core/llm/types';
+import type { Tracer } from '../../../src/core/trace/tracer';
+import { chunkCaptions, type Chunk } from '../../../src/core/transcript/captions';
+import type { CaptionLine, Segment, VideoDigest, VideoInfo } from '../../../src/core/types';
+import { runPool } from '../../../src/core/util/pool';
 import { scoreGrounding } from './grounding';
 import { highlightBudget, selectHighlights } from './highlights';
 import { analyzeChunk, buildDigest, refineSegment, verifySegment } from './steps';

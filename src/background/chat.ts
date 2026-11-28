@@ -1,16 +1,44 @@
-import { runAgent } from '../core/agent/agent';
+import { askLibrary, type LibraryEnv } from '../core/qa/libraryAgent';
+import { askVideo } from '../core/qa/videoQa';
 import { Tracer, tracedClient } from '../core/trace/tracer';
 import type { ChatIn, ChatOut, ChatTurnRecord } from '../shared/protocol';
-import { loadSettings } from '../shared/settings';
-import { getCaptions, getChat, getDigest, getSegments, getVideo, listVideos, putChat, putTrace } from './db';
+import { loadSettings, type Settings } from '../shared/settings';
+import { ensureCaptions } from './bilibili';
+import { getCaptions, getChat, getSegments, getVideo, listVideos, putChat, putTrace } from './db';
 import { holdKeepAlive } from './hub';
-import { searchLibrary, searchVideo } from './library';
+import { searchLibrary } from './library';
 import { clientFor } from './llm';
 
+function libraryEnv(settings: Settings): LibraryEnv {
+  return {
+    async listVideos() {
+      return (await listVideos())
+        .filter((v) => v.captionCount > 0)
+        .map((v) => ({ videoId: v.videoId, bvid: v.bvid, title: v.title, durationSec: v.durationSec, tldr: v.tldr ?? v.official?.summary }));
+    },
+    async search(query, k) {
+      return (await searchLibrary(query, k, settings)).map((h) => ({
+        videoId: h.passage.videoId,
+        bvid: h.bvid,
+        title: h.videoTitle,
+        fromLine: h.passage.fromLine,
+        toLine: h.passage.toLine,
+        start: h.passage.start,
+        end: h.passage.end,
+        text: h.passage.text,
+        context: h.passage.context
+      }));
+    },
+    async lines(bvid) {
+      const v = (await listVideos()).find((x) => x.bvid === bvid);
+      return v ? ((await getCaptions(v.videoId)) ?? undefined) : undefined;
+    }
+  };
+}
+
 /**
- * One "chat" port per open chat panel. Closing the panel disconnects the
- * port, which aborts the in-flight agent run so no tokens are spent on an
- * answer nobody will read.
+ * One "chat" port per open chat view. Closing the view disconnects the port, which aborts the
+ * answer in flight so no tokens are spent on something nobody will read.
  */
 export function attachChatPort(port: chrome.runtime.Port): void {
   let controller: AbortController | null = null;
@@ -29,50 +57,57 @@ export function attachChatPort(port: chrome.runtime.Port): void {
     controller = new AbortController();
     const signal = controller.signal;
     const release = holdKeepAlive();
-    const turns = await getChat(msg.videoId);
+    const turns = await getChat(msg.key);
     const userTurn: ChatTurnRecord = { role: 'user', content: msg.question, at: Date.now() };
     const tools: NonNullable<ChatTurnRecord['tools']> = [];
+    const history = turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.content }));
     try {
       const settings = await loadSettings();
-      const video = await getVideo(msg.videoId);
-      const lines = await getCaptions(msg.videoId);
-      if (!video || !lines) throw new Error('这个视频还没有读取字幕：先点“分析”，或者至少等字幕读取完成');
-      const tracer = new Tracer({ kind: 'chat', videoId: msg.videoId, title: msg.question.slice(0, 60) });
+      const isLibrary = msg.key === 'library';
+      const video = isLibrary ? null : await getVideo(msg.key);
+      const tracer = new Tracer({ kind: 'chat', videoId: video?.videoId ?? 'library', title: msg.question.slice(0, 60) });
       const llm = tracedClient(clientFor(settings), tracer);
-      const hasLibrary = (await listVideos()).length > 1;
-      const final = await runAgent({
-        llm,
-        tracer,
-        question: msg.question,
-        history: turns.map((t) => ({ role: t.role, content: t.content })),
-        signal,
-        env: {
-          video,
-          lines,
-          segments: await getSegments(msg.videoId),
-          digest: await getDigest(msg.videoId),
-          currentTime: msg.currentTime,
-          searchVideo: (q, k) => searchVideo(msg.videoId, q, k, settings),
-          ...(hasLibrary ? { searchLibrary: (q: string, k: number) => searchLibrary(q, k, settings, msg.videoId) } : {})
-        },
-        onEvent: (event) => {
-          if (event.type === 'tool_call') tools.push({ name: event.name, summary: '…', args: event.args });
-          if (event.type === 'tool_result') {
-            const t = [...tools].reverse().find((x) => x.name === event.name && x.summary === '…');
-            if (t) t.summary = event.summary;
+      let answer: string;
+      let citations: ChatTurnRecord['citations'];
+      if (isLibrary) {
+        const out = await askLibrary({
+          llm,
+          env: libraryEnv(settings),
+          question: msg.question,
+          history,
+          tracer,
+          signal,
+          onEvent: (event) => {
+            if (event.type === 'tool_call') tools.push({ name: event.name, summary: '…', args: event.args });
+            if (event.type === 'tool_result') {
+              const t = [...tools].reverse().find((x) => x.name === event.name && x.summary === '…');
+              if (t) t.summary = event.summary;
+            }
+            post({ type: 'EVENT', event });
           }
-          post({ type: 'EVENT', event });
-        }
-      });
+        });
+        answer = out.answer;
+        citations = out.citations;
+      } else {
+        if (!video) throw new Error('还没有这个视频的记录，请刷新页面');
+        const lines = await ensureCaptions(video);
+        const out = await askVideo(
+          { video, lines, segments: await getSegments(video.videoId), official: video.official, history, question: msg.question, currentTime: msg.currentTime },
+          { llm },
+          { signal, onDelta: (text) => post({ type: 'EVENT', event: { type: 'delta', text } }) }
+        );
+        answer = out.answer;
+        citations = out.citations;
+      }
       await putTrace(tracer.finish());
-      const next = [...turns, userTurn, { role: 'assistant' as const, content: final.answer, at: Date.now(), citations: final.citations, tools, mode: final.mode }];
-      await putChat(msg.videoId, next);
+      const next = [...turns, userTurn, { role: 'assistant' as const, content: answer, at: Date.now(), citations, tools }];
+      await putChat(msg.key, next);
       post({ type: 'SAVED', turns: next });
     } catch (err) {
       if (signal.aborted) return;
       const error = String((err as Error)?.message ?? err);
       const next = [...turns, userTurn, { role: 'assistant' as const, content: '', at: Date.now(), error, tools }];
-      await putChat(msg.videoId, next);
+      await putChat(msg.key, next);
       post({ type: 'ERROR', error });
       post({ type: 'SAVED', turns: next });
     } finally {

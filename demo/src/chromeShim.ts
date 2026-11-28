@@ -69,6 +69,8 @@ export interface ShimOptions {
   /** Turn a URL the background wants to open into a demo URL (or null to ignore it). */
   mapUrl: (url: string) => string | null;
   onOpenOptions: () => void;
+  /** The page's stand-in for Chrome's side panel (the demo shows it beside the video). */
+  onOpenSidePanel?: () => void;
 }
 
 const STORAGE_PREFIX = 'bdry-demo:storage:';
@@ -193,7 +195,14 @@ export function installChromeShim(opts: ShimOptions) {
         openUrl(url);
         return { id: TAB_ID + 1 };
       },
-      update: async () => ({ id: TAB_ID })
+      update: async () => ({ id: TAB_ID }),
+      get: async (id: number) => ({ id, windowId: 1, url: opts.tabUrl ?? location.href, active: true }),
+      onActivated: new Ev<Fn>(),
+      onUpdated: new Ev<Fn>()
+    },
+    sidePanel: {
+      setPanelBehavior: async () => undefined,
+      open: async () => opts.onOpenSidePanel?.()
     },
     windows: { update: async () => ({}) },
     permissions: { contains: async () => true, request: async () => true }

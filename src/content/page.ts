@@ -9,10 +9,9 @@ export function readLocation(href = location.href): { bvid: string; page: number
 
 /** The main player's <video>; ignores small preview/ad videos elsewhere on the page. */
 export function findVideo(): HTMLVideoElement | null {
-  const candidates = Array.from(document.querySelectorAll('video'));
   let best: HTMLVideoElement | null = null;
   let bestArea = 0;
-  for (const v of candidates) {
+  for (const v of Array.from(document.querySelectorAll('video'))) {
     const r = v.getBoundingClientRect();
     const area = r.width * r.height;
     if (area > bestArea) {
@@ -21,4 +20,20 @@ export function findVideo(): HTMLVideoElement | null {
     }
   }
   return best;
+}
+
+/**
+ * Bilibili's player container (it is what goes fullscreen) and its progress bar. Selectors are
+ * the current "bpx" player's; when they stop matching, callers fall back to the <video>.
+ */
+export function findPlayer(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('.bpx-player-container') ?? document.querySelector<HTMLElement>('#bilibili-player') ?? findVideo()?.parentElement ?? null;
+}
+
+export function findProgressBar(container: ParentNode = document): HTMLElement | null {
+  return (
+    container.querySelector<HTMLElement>('.bpx-player-progress-schedule-wrap') ??
+    container.querySelector<HTMLElement>('.bpx-player-progress-schedule') ??
+    container.querySelector<HTMLElement>('.bpx-player-progress')
+  );
 }
