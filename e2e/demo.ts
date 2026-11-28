@@ -5,8 +5,8 @@
  *
  * The demo's scripted model recognises requests by the extension's own prompts, so a prompt
  * change the demo does not follow would leave it silently broken. This runs the visitor's path:
- * Bilibili's summary, analysis onto the progress bar, the skip button, a question, the library
- * agent, the dashboard.
+ * Bilibili's summary in the right-column card, analysis onto the progress bar, the skip button,
+ * a question, the drawer in web fullscreen, the library agent, the dashboard.
  */
 import { chromium, type Page } from 'playwright-core';
 import { preview } from 'vite';
@@ -16,18 +16,20 @@ function assert(cond: unknown, msg: string): asserts cond {
   console.log(`✓ ${msg}`);
 }
 
-const panelText = (page: Page) => page.evaluate(() => (document.querySelector('.sidepanel-body')?.shadowRoot?.querySelector('div') as HTMLElement | null)?.innerText ?? '');
+const cardText = () => (document.getElementById('bilibilidry-card')?.shadowRoot?.querySelector('div') as HTMLElement | null)?.innerText ?? '';
+const panelText = (page: Page) => page.evaluate(cardText);
 
 async function waitPanel(page: Page, text: string, timeout = 30000) {
   try {
-    await page.waitForFunction((t) => ((document.querySelector('.sidepanel-body')?.shadowRoot?.querySelector('div') as HTMLElement | null)?.innerText ?? '').includes(t), text, { timeout });
+    await page.waitForFunction(`(${cardText})().includes(${JSON.stringify(text)})`, null, { timeout });
   } catch (err) {
-    console.error(`side panel text while waiting for "${text}":\n${(await panelText(page)).slice(0, 800)}`);
+    console.error(`panel text while waiting for "${text}":\n${(await panelText(page)).slice(0, 800)}`);
     throw err;
   }
 }
 
-const panel = (page: Page) => page.locator('.sidepanel-body');
+/** The panel card the content script puts in the right column (Playwright locators pierce its shadow root). */
+const panel = (page: Page) => page.locator('#bilibilidry-card');
 
 async function main() {
   const server = await preview({ configFile: 'vite.demo.config.ts', preview: { port: 0, strictPort: false } });
@@ -45,7 +47,8 @@ async function main() {
     assert(true, 'landing redirects to the first video and the real player layer mounts in the player');
 
     await waitPanel(page, 'B 站 AI 总结');
-    assert(true, 'side panel shows Bilibili\'s own summary before any analysis');
+    assert(await page.locator('.right-container-inner > #bilibilidry-card + .video-pod-above-modules').count(), 'panel card sits in the right column, above the danmaku list');
+    assert(true, 'the card shows Bilibili\'s own summary before any analysis');
 
     await panel(page).locator('button', { hasText: '分析这个视频' }).click();
     await waitPanel(page, 'Agent = 大模型 + 循环 + 工具');
@@ -58,6 +61,15 @@ async function main() {
     await panel(page).locator('button', { hasText: '有没有提到具体的数据或例子' }).click();
     await waitPanel(page, '处引用和字幕对得上');
     assert((await panelText(page)).includes('二零二二年'), 'question answered with line citations');
+
+    await page.locator('.bpx-player-container button[aria-label="网页全屏"]').click();
+    await page.waitForFunction(() => getComputedStyle(document.getElementById('bilibilidry-card')!).display === 'none', null, { timeout: 5000 });
+    await page.locator('#bilibilidry-host button[title="打开 BilibiliDry"]').click({ force: true });
+    await page.waitForFunction(() => (document.getElementById('bilibilidry-host')?.shadowRoot?.textContent ?? '').includes('只看这几段'), null, { timeout: 5000 });
+    assert(true, 'in web fullscreen the card gives way to a drawer inside the player');
+    await page.locator('#bilibilidry-host button[title="关闭"]').click();
+    await page.locator('.bpx-player-container button[aria-label="退出网页全屏"]').click();
+    await page.waitForFunction(() => getComputedStyle(document.getElementById('bilibilidry-card')!).display === 'block', null, { timeout: 5000 });
 
     await page.locator('.next-status button').click();
     await page.waitForFunction(() => document.querySelector('.next-status')?.textContent?.includes('已分析'), null, { timeout: 30000 });

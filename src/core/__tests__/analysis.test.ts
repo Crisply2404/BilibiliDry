@@ -4,7 +4,7 @@ import { lexicalGrounding } from '../analysis/grounding';
 import { toMarkdown } from '../export/markdown';
 import { parseJsonLoose } from '../llm/json';
 import type { ChatRequest, ChatResult, LlmClient } from '../llm/types';
-import { heatmap, nextDryStart, skipTarget } from '../playback';
+import { heatmap, nextDryStart, segmentStats, skipTarget } from '../playback';
 import { cleanCaptions } from '../transcript/captions';
 import type { Segment, VideoInfo } from '../types';
 
@@ -193,5 +193,9 @@ describe('playback', () => {
     expect(nextDryStart(segs, 5)).toBe(20);
     const cells = heatmap(segs, 100);
     expect(cells[cells.length - 1]).toMatchObject({ start: 62, end: 100, kind: 'unknown' });
+  });
+  it('computes the dry share over the analysed time only', () => {
+    expect(segmentStats(segs)).toEqual({ drySec: 40, waterSec: 22, dryShare: 40 / 62 });
+    expect(segmentStats([]).dryShare).toBeNull();
   });
 });

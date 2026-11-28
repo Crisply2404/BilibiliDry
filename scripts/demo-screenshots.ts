@@ -8,9 +8,9 @@ import { chromium, type Page } from 'playwright-core';
 import { preview } from 'vite';
 
 const OUT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'docs', 'screenshots');
-const panel = (page: Page) => page.locator('.sidepanel-body');
+const panel = (page: Page) => page.locator('#bilibilidry-card');
 const waitPanel = (page: Page, text: string) =>
-  page.waitForFunction((t) => ((document.querySelector('.sidepanel-body')?.shadowRoot?.querySelector('div') as HTMLElement | null)?.innerText ?? '').includes(t), text, { timeout: 30000 });
+  page.waitForFunction((t) => ((document.getElementById('bilibilidry-card')?.shadowRoot?.querySelector('div') as HTMLElement | null)?.innerText ?? '').includes(t), text, { timeout: 30000 });
 
 async function main() {
   const server = await preview({ configFile: 'vite.demo.config.ts', preview: { port: 0, strictPort: false } });
@@ -20,7 +20,7 @@ async function main() {
     const page = await (await browser.newContext({ viewport: { width: 1440, height: 860 }, deviceScaleFactor: 2 })).newPage();
     await page.goto(`${origin}video/BV1dryAgent1/`);
     await waitPanel(page, 'B 站 AI 总结');
-    await page.screenshot({ path: path.join(OUT, 'official-summary.png'), clip: { x: 1040, y: 56, width: 400, height: 560 } });
+    await panel(page).screenshot({ path: path.join(OUT, 'official-summary.png') });
 
     await panel(page).locator('button', { hasText: '分析这个视频' }).click();
     await waitPanel(page, 'Agent = 大模型 + 循环 + 工具');
@@ -30,13 +30,15 @@ async function main() {
       v.currentTime = 95;
     });
     await page.waitForFunction(() => (document.getElementById('bilibilidry-host')?.shadowRoot?.textContent ?? '').includes('跳过广告'), null, { timeout: 10000 });
-    await page.screenshot({ path: path.join(OUT, 'player-and-panel.png'), clip: { x: 0, y: 56, width: 1440, height: 600 } });
+    const [player, card] = await Promise.all([page.locator('.bpx-player-container').boundingBox(), panel(page).boundingBox()]);
+    const pad = 12;
+    await page.screenshot({ path: path.join(OUT, 'player-and-panel.png'), clip: { x: player!.x - pad, y: player!.y - pad, width: card!.x + card!.width - player!.x + 2 * pad, height: Math.max(player!.height, card!.height) + 2 * pad } });
 
     await panel(page).locator('nav button', { hasText: '问答' }).click();
     await panel(page).locator('button', { hasText: '有没有提到具体的数据或例子' }).click();
     await waitPanel(page, '处引用和字幕对得上');
     await page.waitForTimeout(500);
-    await page.screenshot({ path: path.join(OUT, 'qa.png'), clip: { x: 1040, y: 56, width: 400, height: 640 } });
+    await panel(page).screenshot({ path: path.join(OUT, 'qa.png') });
     console.log(`screenshots written to ${OUT}`);
   } finally {
     await browser.close();

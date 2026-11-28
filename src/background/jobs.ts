@@ -1,4 +1,5 @@
 import { analyzeVideo } from '../core/analysis/analyze';
+import { segmentStats } from '../core/playback';
 import { Tracer, tracedClient } from '../core/trace/tracer';
 import type { Segment } from '../core/types';
 import type { JobState, VideoRecord } from '../shared/protocol';
@@ -112,11 +113,13 @@ async function runJob(video: VideoRecord, job: JobRecord, settings: Settings, si
     await putSegments(video.videoId, result.segments);
     await putDigest(video.videoId, result.digest);
     const latest = (await getVideo(video.videoId)) ?? current;
+    const stats = segmentStats(result.segments);
     await putVideo({
       ...latest,
       analyzedAt: Date.now(),
       segmentCount: result.segments.length,
-      waterSec: result.segments.filter((s) => s.kind === 'water').reduce((a, s) => a + s.end - s.start, 0),
+      waterSec: stats.waterSec,
+      dryShare: stats.dryShare ?? undefined,
       tldr: result.digest.tldr || latest.official?.summary
     });
     invalidate(video.videoId);

@@ -162,7 +162,7 @@ export function Options() {
 
       <section className="card space-y-4 p-5">
         <h2 className="text-[15px] font-semibold">观看体验</h2>
-        <Toggle checked={draft.autoAnalyze} onChange={(v) => set({ autoAnalyze: v })} label="打开视频时自动分析" hint="关闭时在侧边栏点“分析这个视频”，更省钱" />
+        <Toggle checked={draft.autoAnalyze} onChange={(v) => set({ autoAnalyze: v })} label="打开视频时自动分析" hint="关闭时在视频页右栏的卡片里点“分析这个视频”，更省钱" />
         <Toggle checked={draft.autoSkip} onChange={(v) => set({ autoSkip: v })} label="自动跳过注水" hint="播放到下面勾选的类型时自动跳过，屏幕底部会出现“撤销”" />
         <div className="flex flex-wrap gap-2 pl-12">
           {WATER_REASONS.map((r) => {
@@ -179,7 +179,7 @@ export function Options() {
 
       <section className="card space-y-4 p-5">
         <h2 className="text-[15px] font-semibold">高级</h2>
-        <Toggle checked={draft.developerMode} onChange={(v) => set({ developerMode: v })} label="开发者模式" hint="在侧边栏和工作台显示每次分析、问答的调用记录：耗时、token、缓存命中、费用、错误" />
+        <Toggle checked={draft.developerMode} onChange={(v) => set({ developerMode: v })} label="开发者模式" hint="在卡片和工作台显示每次分析、问答的调用记录：耗时、token、缓存命中、费用、错误" />
       </section>
 
       <section className="card space-y-3 p-5">

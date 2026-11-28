@@ -112,7 +112,7 @@ function LibraryView() {
                   <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
                     {v.owner && <span>{v.owner}</span>}
                     <span>{formatTime(v.durationSec)}</span>
-                    {v.waterSec !== undefined && v.durationSec > 0 && <span className="chip bg-bili-pink/10 text-bili-pink">干货 {Math.round((1 - v.waterSec / v.durationSec) * 100)}%</span>}
+                    {v.dryShare !== undefined && <span className="chip bg-bili-pink/10 text-bili-pink">干货 {Math.round(v.dryShare * 100)}%</span>}
                     {v.jobStatus && v.jobStatus !== 'done' && <span className="chip bg-amber-50 text-amber-600">{v.jobStatus === 'failed' ? '失败' : v.jobStatus === 'running' || v.jobStatus === 'fetching' ? '分析中' : '未完成'}</span>}
                   </div>
                   {v.tldr && <p className="line-clamp-2 text-[12px] text-slate-500">{v.tldr}</p>}

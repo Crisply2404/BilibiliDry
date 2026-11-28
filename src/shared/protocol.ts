@@ -28,6 +28,8 @@ export interface VideoRecord extends VideoInfo {
   officialCheckedAt?: number;
   /** Seconds marked as filler, for the library list. */
   waterSec?: number;
+  /** `segmentStats().dryShare`, for the library list. */
+  dryShare?: number;
   segmentCount?: number;
   tldr?: string;
 }
@@ -91,7 +93,6 @@ export type Request =
   | { type: 'CLEAR_CHAT'; key: ChatKey }
   | { type: 'OPEN_DASHBOARD'; videoId?: string }
   | { type: 'OPEN_OPTIONS' }
-  | { type: 'OPEN_SIDE_PANEL' }
   | { type: 'SEEK'; bvid: string; page: number; time: number }
   | { type: 'GET_STATS' }
   | { type: 'CLEAR_ALL' };
@@ -119,7 +120,7 @@ export type ChatIn = { type: 'ASK'; key: ChatKey; question: string; currentTime?
 export type ChatOut = { type: 'EVENT'; event: ChatEvent } | { type: 'ERROR'; error: string } | { type: 'SAVED'; turns: ChatTurnRecord[] };
 
 /** Background → content script (tabs.sendMessage). */
-export type TabCommand = { type: 'SEEK_TO'; time: number };
+export type TabCommand = { type: 'SEEK_TO'; time: number } | { type: 'TOGGLE_PANEL' };
 
 export async function send<T = unknown>(req: Request): Promise<T> {
   const res = (await chrome.runtime.sendMessage(req)) as Response<T> | undefined;

@@ -1,3 +1,4 @@
+import { readLocation } from '../content/page';
 import { toMarkdown } from '../core/export/markdown';
 import { redact } from '../core/llm/openaiCompat';
 import type { Request, Response, TabCommand, VideoBundle } from '../shared/protocol';
@@ -12,8 +13,13 @@ import { testConnection } from './llm';
 
 void recoverInterruptedJobs();
 
-// The toolbar button opens the side panel: that is where the summary, chat and library live.
-void chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => undefined);
+// The toolbar button shows or hides the panel on a video page; anywhere else it opens the library.
+chrome.action.onClicked.addListener((tab) => {
+  const openLibrary = () => void chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
+  const url = tab.url ?? '';
+  if (tab.id === undefined || !url.startsWith('https://www.bilibili.com/') || !readLocation(url)) return openLibrary();
+  chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_PANEL' } satisfies TabCommand).catch(openLibrary);
+});
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') void chrome.runtime.openOptionsPage();
@@ -34,7 +40,7 @@ async function videoBundle(videoId: string): Promise<VideoBundle> {
 }
 
 async function seek(bvid: string, page: number, time: number): Promise<void> {
-  const tabs = await chrome.tabs.query({ url: `https://www.bilibili.com/video/${bvid}*` });
+  const tabs = await chrome.tabs.query({ url: [`https://www.bilibili.com/video/${bvid}*`, `https://www.bilibili.com/*/video/${bvid}*`] });
   const tab = tabs.find((t) => (Number(new URL(t.url ?? 'https://x').searchParams.get('p') ?? '1') || 1) === page) ?? tabs[0];
   if (tab?.id !== undefined) {
     await chrome.tabs.sendMessage(tab.id, { type: 'SEEK_TO', time } satisfies TabCommand).catch(() => undefined);
@@ -109,8 +115,6 @@ async function handle(req: Request): Promise<unknown> {
     case 'OPEN_OPTIONS':
       await chrome.runtime.openOptionsPage();
       return true;
-    case 'OPEN_SIDE_PANEL':
-      return true; // handled synchronously in the listener (needs the user gesture)
     case 'SEEK':
       await seek(req.bvid, req.page, req.time);
       return true;
@@ -126,21 +130,7 @@ async function handle(req: Request): Promise<unknown> {
   }
 }
 
-chrome.runtime.onMessage.addListener((req: Request, sender, sendResponse: (r: Response) => void) => {
-  if (req.type === 'OPEN_SIDE_PANEL') {
-    // sidePanel.open only works inside the user gesture, so it must run before any await.
-    const tabId = sender.tab?.id;
-    const windowId = sender.tab?.windowId;
-    if (!chrome.sidePanel?.open || (tabId === undefined && windowId === undefined)) {
-      sendResponse({ ok: false, error: '当前浏览器不支持侧边栏' });
-      return false;
-    }
-    chrome.sidePanel
-      .open(tabId !== undefined ? { tabId } : { windowId: windowId! })
-      .then(() => sendResponse({ ok: true, data: true }))
-      .catch((err: unknown) => sendResponse({ ok: false, error: String((err as Error)?.message ?? err) }));
-    return true;
-  }
+chrome.runtime.onMessage.addListener((req: Request, _sender, sendResponse: (r: Response) => void) => {
   handle(req)
     .then((data) => sendResponse({ ok: true, data }))
     .catch((err) => sendResponse({ ok: false, error: redact(String((err as Error)?.message ?? err)) }));

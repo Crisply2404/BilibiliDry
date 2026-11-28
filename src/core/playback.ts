@@ -63,3 +63,26 @@ export function heatmap(segments: Segment[], durationSec: number): HeatCell[] {
   if (durationSec > cursor + 0.5) cells.push({ start: cursor, end: durationSec, value: 0, kind: 'unknown' });
   return cells;
 }
+
+export interface SegmentStats {
+  drySec: number;
+  waterSec: number;
+  /** Share of the analysed time that is not filler, 0..1; null before any analysis. */
+  dryShare: number | null;
+}
+
+/**
+ * The one definition of "干货 %" used everywhere (player, panel, library): the non-filler share of
+ * the time the segments cover. The video's own duration is not used, because the transcript often
+ * stops before the end credits and the share would then depend on how long they run.
+ */
+export function segmentStats(segments: Segment[]): SegmentStats {
+  let drySec = 0;
+  let waterSec = 0;
+  for (const s of segments) {
+    if (s.kind === 'water') waterSec += s.end - s.start;
+    else drySec += s.end - s.start;
+  }
+  const total = drySec + waterSec;
+  return { drySec, waterSec, dryShare: total > 0 ? drySec / total : null };
+}

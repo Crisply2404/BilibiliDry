@@ -14,7 +14,7 @@ export function videoPageUrl(bvid: string, t?: number): string {
  * first, then the `chrome.*` shim, then demo settings pointing at the
  * scripted model, then the background module itself.
  */
-export async function boot(opts: { tabBvid?: string; onOpenOptions: () => void; onOpenSidePanel?: () => void }): Promise<void> {
+export async function boot(opts: { tabBvid?: string; onOpenOptions: () => void }): Promise<void> {
   installFakeNetwork();
   const shim = installChromeShim({
     baseUrl: SITE_BASE,
@@ -27,8 +27,7 @@ export async function boot(opts: { tabBvid?: string; onOpenOptions: () => void; 
       }
       return url.startsWith(SITE_BASE) ? url : null;
     },
-    onOpenOptions: opts.onOpenOptions,
-    onOpenSidePanel: opts.onOpenSidePanel
+    onOpenOptions: opts.onOpenOptions
   });
   // The model settings are fixed to the scripted model; viewing preferences (auto-skip, strip) are kept.
   await saveSettings({ provider: 'custom', baseUrl: DEMO_MODEL_BASE, apiKey: 'demo', model: 'demo-flash', reasoning: 'off', embeddingModel: '', autoAnalyze: false, developerMode: true });

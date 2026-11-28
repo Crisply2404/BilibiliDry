@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { createBilibiliClient, parseOfficial, subtitleMismatch } from '../bilibili/api';
+import { readLocation } from '../../content/page';
 import { md5, mixinKey, signQuery } from '../bilibili/wbi';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -92,5 +93,14 @@ describe('bilibili client', () => {
       'aisubtitle.hdslb.com': () => json({ body: [{ from: 0, to: 40, content: '一' }, { from: 900, to: 1300, content: '别的视频' }] })
     });
     await expect(c.materials('BV1aaaaaaaaa', 1)).rejects.toMatchObject({ code: 'mismatch' });
+  });
+});
+
+describe('video page URLs', () => {
+  it('reads the video and part, with or without a language prefix', () => {
+    expect(readLocation('https://www.bilibili.com/video/BV1ZKxC6EE5k/?p=2')).toEqual({ bvid: 'BV1ZKxC6EE5k', page: 2 });
+    expect(readLocation('https://www.bilibili.com/zh-Hans/video/BV1ZKxC6EE5k/')).toEqual({ bvid: 'BV1ZKxC6EE5k', page: 1 });
+    expect(readLocation('https://www.bilibili.com/en/video/BV1ZKxC6EE5k/')).toEqual({ bvid: 'BV1ZKxC6EE5k', page: 1 });
+    expect(readLocation('https://www.bilibili.com/')).toBeNull();
   });
 });

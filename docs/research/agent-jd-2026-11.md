@@ -76,8 +76,8 @@
 | `cost` | 整片分析 1 次调用替代 10 次；问答走前缀缓存；按 DeepSeek 价格（含高峰时段）算每次调用的费用 |
 | `performance` | LLM 客户端超时、指数退避、遵守 Retry-After；服务商不支持 `response_format`/流式时自动降级；B 站接口限流时退回备用字幕 |
 | `security` | API Key 只存本地，错误信息里打码；发布包和在线演示都扫描疑似 Key；模型服务域名按需申请权限 |
-| `engineering-practice` | TypeScript strict、50 个单元测试、真实 Chromium 端到端测试、在线演示的端到端测试、GitHub Actions |
-| `human-in-the-loop` | 自动跳过可撤销；分析可停止、可继续；关闭侧边栏即取消正在进行的回答 |
+| `engineering-practice` | TypeScript strict、52 个单元测试、真实 Chromium 端到端测试、在线演示的端到端测试、GitHub Actions |
+| `human-in-the-loop` | 自动跳过可撤销；分析可停止、可继续；点“停止”即取消正在进行的回答 |
 | `shipped-project` | Chrome 扩展 + 在线演示（GitHub Pages）；B 站自己的 AI 总结不配 Key 也能用 |
 
 ## 四、收录的岗位

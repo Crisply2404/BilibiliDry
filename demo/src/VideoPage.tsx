@@ -1,10 +1,7 @@
-import { Pause, Play } from 'lucide-react';
+import { Maximize, Minimize, Pause, Play } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createRoot } from 'react-dom/client';
 import { formatTime } from '../../src/core/transcript/captions';
 import { send, type VideoBundle } from '../../src/shared/protocol';
-import { SidePanel } from '../../src/sidepanel/SidePanel';
-import css from '../../src/styles.css?inline';
 import { useSettings } from '../../src/ui/hooks';
 import { SITE_BASE, videoPageUrl } from './boot';
 import { clearDemoStorage } from './chromeShim';
@@ -14,13 +11,14 @@ const REPO = 'https://github.com/Crisply2404/BilibiliDry';
 
 /**
  * A player with the same class names as Bilibili's ("bpx-player-…"), so the extension's real
- * player layer finds the container and draws onto this progress bar exactly as it would on
- * Bilibili.
+ * player layer finds the container and draws onto this progress bar. Its web fullscreen covers the
+ * window like Bilibili's, and the panel moves into a drawer exactly as it would there.
  */
 function DemoPlayer({ video }: { video: DemoVideo }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [web, setWeb] = useState(false);
   const duration = video.built.video.durationSec;
   const caption = useMemo(() => video.built.lines.find((l) => time >= l.from && time <= l.to + 0.2)?.text ?? '', [time, video]);
 
@@ -44,7 +42,7 @@ function DemoPlayer({ video }: { video: DemoVideo }) {
   };
 
   return (
-    <div className="bpx-player-container player">
+    <div className={`bpx-player-container player ${web ? 'web' : ''}`} data-screen={web ? 'web' : 'normal'}>
       <video
         ref={ref}
         src={new URL(video.media, SITE_BASE).href}
@@ -80,30 +78,11 @@ function DemoPlayer({ video }: { video: DemoVideo }) {
         <span className="time">
           {formatTime(time)} / {formatTime(duration)}
         </span>
+        <button className="play" onClick={() => setWeb((w) => !w)} aria-label={web ? '退出网页全屏' : '网页全屏'} title={web ? '退出网页全屏' : '网页全屏'}>
+          {web ? <Minimize size={17} /> : <Maximize size={17} />}
+        </button>
       </div>
     </div>
-  );
-}
-
-/** The extension's real side panel, in a Shadow DOM so its Tailwind styles stay inside it. */
-function SidePanelColumn({ flash }: { flash: number }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const host = ref.current;
-    if (!host || host.shadowRoot) return;
-    const shadow = host.attachShadow({ mode: 'open' });
-    const style = document.createElement('style');
-    style.textContent = `${css}\n:host{display:block;height:100%}`;
-    const mount = document.createElement('div');
-    mount.style.height = '100%';
-    shadow.append(style, mount);
-    createRoot(mount).render(<SidePanel className="h-full" />);
-  }, []);
-  return (
-    <aside className={`sidepanel ${flash ? 'flash' : ''}`} key={flash}>
-      <div className="sidepanel-bar">侧边栏（扩展里在浏览器右侧）</div>
-      <div ref={ref} className="sidepanel-body" />
-    </aside>
   );
 }
 
@@ -131,7 +110,7 @@ function useOtherStatus(other: DemoVideo): 'none' | 'running' | 'done' {
   return status;
 }
 
-export function VideoPage({ video, other, flash }: { video: DemoVideo; other: DemoVideo; flash: number }) {
+export function VideoPage({ video, other }: { video: DemoVideo; other: DemoVideo }) {
   const [settings, save] = useSettings();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const otherStatus = useOtherStatus(other);
@@ -173,12 +152,9 @@ export function VideoPage({ video, other, flash }: { video: DemoVideo; other: De
 
       <div className="layout">
         <main className="page">
-          <DemoPlayer video={video} />
-
           <section className="meta">
             <h1>{title}</h1>
             <div className="meta-row">
-              <span>{video.owner}</span>
               <span>{formatTime(durationSec)}</span>
               <span>AI 字幕（原创示例）</span>
               <label className="toggle">
@@ -188,50 +164,68 @@ export function VideoPage({ video, other, flash }: { video: DemoVideo; other: De
             </div>
           </section>
 
+          <DemoPlayer video={video} />
+
           <section className="intro">
             <h2>不用装扩展，先看看它怎么用</h2>
             <p>
-              这一页把 BilibiliDry 扩展的代码原样跑在你的浏览器里：播放器上的进度条标注和跳过按钮、右边的侧边栏、分析和问答、知识库都是真的。只有两处换成了预先准备的回应：<b>B 站接口</b>和<b>大模型</b>，所以不需要 API Key，也不会调用任何模型。两个视频的字幕是为评测写的原创样例，画面是占位。
+              这一页把 BilibiliDry 扩展的代码原样跑在你的浏览器里：播放器上的进度条标注和跳过按钮、右边的 BilibiliDry 卡片、分析和问答、知识库都是真的。只有两处换成了预先准备的回应：<b>B 站接口</b>和<b>大模型</b>，所以不需要 API Key，也不会调用任何模型。两个视频的字幕是为评测写的原创样例，画面是占位。
             </p>
             <ol>
-              <li>右边侧边栏先显示的是“B 站 AI 总结”：B 站自己生成的总结，装了扩展不配 Key 也能看。</li>
+              <li>右边卡片先显示的是“B 站 AI 总结”：B 站自己生成的总结，装了扩展不配 Key 也能看。</li>
               <li>点“分析这个视频”：模型一次读完整个视频，片段一段段出现在播放器的进度条上，粉色越深越重要，灰色是寒暄、广告、重复。</li>
               <li>播放视频：放到注水段时，播放器右下角会出现“跳过”按钮；也可以勾上上面的“自动跳过”。</li>
-              <li>在侧边栏的“问答”里提问，回答里的时间可以点；在“知识库”里可以跨视频搜索和提问。</li>
+              <li>在卡片的“问答”里提问，回答里的时间可以点；在“知识库”里可以跨视频搜索和提问。</li>
+              <li>点播放器右下角的网页全屏：右栏没了，卡片会变成播放器里的抽屉，点右上角的按钮打开。</li>
             </ol>
             <p className="muted">问到没准备过的问题时，模拟模型会直接列出字幕里最相关的几句。</p>
           </section>
-
-          <section className="next">
-            <div className="next-head">演示里的另一个视频</div>
-            <a className="next-card" href={videoPageUrl(other.bvid)}>
-              <span className="next-thumb" data-kind={other.bvid === 'BV1dryPork01' ? 'pork' : 'agent'}>
-                {formatTime(other.built.video.durationSec)}
-              </span>
-              <span className="next-body">
-                <span className="next-title">{other.built.video.title}</span>
-                <span className="muted">{other.owner}</span>
-              </span>
-            </a>
-            <div className="next-status muted">
-              {otherStatus === 'done' ? (
-                '已分析，可以在侧边栏的“知识库”里跨视频检索和提问。'
-              ) : otherStatus === 'running' ? (
-                '正在后台分析…'
-              ) : (
-                <>
-                  还没分析。
-                  <button className="linkish" onClick={() => void send({ type: 'ANALYZE', bvid: other.bvid, page: 1 }).catch(() => undefined)}>
-                    在后台分析它
-                  </button>
-                  ，知识库里就有两个视频了。
-                </>
-              )}
-            </div>
-          </section>
         </main>
 
-        <SidePanelColumn flash={flash} />
+        {/* Bilibili's right column, with the class names the content script looks for. */}
+        <aside className="right-container">
+          <div className="right-container-inner">
+            <div className="up-panel-container">
+              <span className="up-avatar">{video.owner.slice(0, 1)}</span>
+              <span className="up-info">
+                <span className="up-name">{video.owner}</span>
+                <span className="muted">演示用的 UP 主</span>
+              </span>
+            </div>
+            <div className="video-pod-above-modules">
+              <div id="danmukuBox" className="danmaku-box">
+                弹幕列表<span className="muted">演示里没有弹幕</span>
+              </div>
+            </div>
+            <section className="next">
+              <div className="next-head">演示里的另一个视频</div>
+              <a className="next-card" href={videoPageUrl(other.bvid)}>
+                <span className="next-thumb" data-kind={other.bvid === 'BV1dryPork01' ? 'pork' : 'agent'}>
+                  {formatTime(other.built.video.durationSec)}
+                </span>
+                <span className="next-body">
+                  <span className="next-title">{other.built.video.title}</span>
+                  <span className="muted">{other.owner}</span>
+                </span>
+              </a>
+              <div className="next-status muted">
+                {otherStatus === 'done' ? (
+                  '已分析，可以在卡片的“知识库”里跨视频检索和提问。'
+                ) : otherStatus === 'running' ? (
+                  '正在后台分析…'
+                ) : (
+                  <>
+                    还没分析。
+                    <button className="linkish" onClick={() => void send({ type: 'ANALYZE', bvid: other.bvid, page: 1 }).catch(() => undefined)}>
+                      在后台分析它
+                    </button>
+                    ，知识库里就有两个视频了。
+                  </>
+                )}
+              </div>
+            </section>
+          </div>
+        </aside>
       </div>
 
       {optionsOpen && (

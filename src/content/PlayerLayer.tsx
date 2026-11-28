@@ -1,14 +1,14 @@
 import { FastForward, Loader2, PanelRight, Sparkles } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { segmentAt, skipTarget } from '../core/playback';
+import { segmentAt, segmentStats, skipTarget } from '../core/playback';
 import { formatTime } from '../core/transcript/captions';
 import { WATER_REASON_LABEL, type Segment } from '../core/types';
-import { send, type TabCommand, type VideoBundle } from '../shared/protocol';
-import { useSettings, useVideo } from '../ui/hooks';
+import type { VideoBundle } from '../shared/protocol';
+import type { Settings } from '../shared/settings';
 import { findProgressBar, findVideo, readLocation } from './page';
 
-function useLocation() {
+export function useLocation() {
   const [loc, setLoc] = useState(() => readLocation());
   useEffect(() => {
     const id = setInterval(() => {
@@ -20,7 +20,7 @@ function useLocation() {
   return loc;
 }
 
-function usePlayback() {
+export function usePlayback() {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [time, setTime] = useState(0);
   const [paused, setPaused] = useState(true);
@@ -99,27 +99,26 @@ function ProgressStrip({ segments, duration, marks, highlightIds }: { segments: 
   );
 }
 
-export function PlayerLayer() {
-  const loc = useLocation();
-  const { video, time, paused } = usePlayback();
-  const [settings] = useSettings();
-  const [videoId, setVideoId] = useState<string | null>(null);
-  const { bundle, setBundle } = useVideo(videoId);
+export interface PlayerLayerProps {
+  bundle: VideoBundle | null;
+  settings: Settings | null;
+  video: HTMLVideoElement | null;
+  time: number;
+  paused: boolean;
+  seek: (t: number) => void;
+  /** The panel is open as a drawer over the right side of the player. */
+  drawerOpen: boolean;
+  onOpenPanel: () => void;
+}
+
+/** What sits on the player itself: the progress-bar strip, the skip button, the auto-skip notice and the entry button. */
+export function PlayerLayer({ bundle, settings, video, time, paused, seek, drawerOpen, onOpenPanel }: PlayerLayerProps) {
   const [toast, setToast] = useState<{ text: string; undoTo?: number } | null>(null);
   const [pill, setPill] = useState(false);
   const allowed = useRef(new Set<string>());
+  const videoId = bundle?.video?.videoId;
 
-  useEffect(() => {
-    setVideoId(null);
-    allowed.current.clear();
-    if (!loc) return;
-    send<VideoBundle>({ type: 'RESOLVE_VIDEO', bvid: loc.bvid, page: loc.page })
-      .then((b) => {
-        setVideoId(b.video?.videoId ?? null);
-        setBundle(b);
-      })
-      .catch(() => undefined);
-  }, [loc?.bvid, loc?.page]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => allowed.current.clear(), [videoId]);
 
   const segments = bundle?.segments ?? [];
   const duration = bundle?.video?.durationSec || video?.duration || 0;
@@ -127,26 +126,6 @@ export function PlayerLayer() {
   const highlightIds = useMemo(() => new Set(bundle?.digest?.highlightIds ?? []), [bundle?.digest]);
   const marks = useMemo(() => (bundle?.video?.official?.outline ?? []).map((o) => o.start).filter((t) => t > 1), [bundle?.video?.official]);
   const progressHost = useProgressHost(Boolean(settings?.showOnProgress));
-
-  const seek = useCallback(
-    (t: number) => {
-      const v = findVideo();
-      if (!v) return;
-      v.currentTime = Math.max(0, t);
-      if (v.paused) void v.play().catch(() => undefined);
-    },
-    []
-  );
-
-  // Commands from the side panel and dashboard.
-  useEffect(() => {
-    const on = (m: TabCommand | { type: 'GET_TIME' }, _s: unknown, reply: (r: unknown) => void) => {
-      if (m?.type === 'SEEK_TO') seek(m.time);
-      if (m?.type === 'GET_TIME') reply({ time: findVideo()?.currentTime ?? 0, bvid: loc?.bvid });
-    };
-    chrome.runtime.onMessage.addListener(on);
-    return () => chrome.runtime.onMessage.removeListener(on);
-  }, [seek, loc?.bvid]);
 
   // Auto-skip filler of the chosen kinds. A segment the user went back to with "撤销" is never skipped again.
   const current = segmentAt(segments, time);
@@ -166,7 +145,7 @@ export function PlayerLayer() {
     return () => clearTimeout(id);
   }, [toast]);
 
-  // The entry pill shows while the mouse moves over the player, like the player's own controls.
+  // The entry button shows while the mouse moves over the player, like the player's own controls.
   useEffect(() => {
     const player = video?.closest('.bpx-player-container') ?? video?.parentElement;
     if (!player) return;
@@ -183,31 +162,32 @@ export function PlayerLayer() {
     };
   }, [video]);
 
-  if (!loc) return null;
   const skipTo = current?.kind === 'water' ? current.end : null;
   const running = bundle?.job ? ['queued', 'fetching', 'running'].includes(bundle.job.status) : false;
-  const dryShare = segments.length ? segments.filter((s) => s.kind === 'dry').reduce((a, s) => a + s.end - s.start, 0) / Math.max(1, duration) : null;
-
-  const openPanel = () =>
-    void send({ type: 'OPEN_SIDE_PANEL' }).catch(() => setToast({ text: '点浏览器右上角的 BilibiliDry 图标打开侧边栏' }));
+  const { dryShare } = segmentStats(segments);
+  // Keep the skip button and notice clear of the drawer.
+  const right = drawerOpen ? 'min(420px, 45%)' : '0px';
 
   return (
     <>
       {progressHost && createPortal(<ProgressStrip segments={segments} duration={duration} marks={marks} highlightIds={highlightIds} />, progressHost)}
 
-      <button
-        className={`pointer-events-auto absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-1.5 text-[12px] text-white backdrop-blur transition-opacity hover:bg-black/75 ${pill || running ? 'opacity-100' : 'opacity-0'}`}
-        onClick={openPanel}
-        title="打开 BilibiliDry 侧边栏"
-      >
-        {running ? <Loader2 className="h-3.5 w-3.5 animate-spin text-bili-pink" /> : <Sparkles className="h-3.5 w-3.5 text-bili-pink" />}
-        {running ? `分析中 ${bundle?.job?.linesTotal ? Math.round((bundle.job.linesDone / bundle.job.linesTotal) * 100) : 0}%` : dryShare !== null ? `干货 ${Math.round(dryShare * 100)}%` : 'Dry'}
-        <PanelRight className="h-3.5 w-3.5 opacity-70" />
-      </button>
+      {!drawerOpen && (
+        <button
+          className={`pointer-events-auto absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-1.5 text-[12px] text-white backdrop-blur transition-opacity hover:bg-black/75 ${pill || running ? 'opacity-100' : 'opacity-0'}`}
+          onClick={onOpenPanel}
+          title="打开 BilibiliDry"
+        >
+          {running ? <Loader2 className="h-3.5 w-3.5 animate-spin text-bili-pink" /> : <Sparkles className="h-3.5 w-3.5 text-bili-pink" />}
+          {running ? `分析中 ${bundle?.job?.linesTotal ? Math.round((bundle.job.linesDone / bundle.job.linesTotal) * 100) : 0}%` : dryShare !== null ? `干货 ${Math.round(dryShare * 100)}%` : 'Dry'}
+          <PanelRight className="h-3.5 w-3.5 opacity-70" />
+        </button>
+      )}
 
       {skipTo !== null && !(settings?.autoSkip && current?.waterReason && reasons.has(current.waterReason)) && (
         <button
-          className="pointer-events-auto absolute bottom-[72px] right-4 flex items-center gap-1.5 rounded-md bg-black/70 px-3.5 py-2 text-[13px] font-medium text-white shadow-lg backdrop-blur hover:bg-black/85"
+          className="pointer-events-auto absolute bottom-[72px] flex items-center gap-1.5 rounded-md bg-black/70 px-3.5 py-2 text-[13px] font-medium text-white shadow-lg backdrop-blur hover:bg-black/85"
+          style={{ right: `calc(${right} + 16px)` }}
           onClick={() => {
             allowed.current.add(current!.id);
             seek(skipTo);
@@ -220,7 +200,10 @@ export function PlayerLayer() {
       )}
 
       {toast && (
-        <div className="pointer-events-auto absolute bottom-[72px] left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black/75 px-4 py-2 text-[13px] text-white shadow-lg">
+        <div
+          className="pointer-events-auto absolute bottom-[72px] flex -translate-x-1/2 items-center gap-3 whitespace-nowrap rounded-full bg-black/75 px-4 py-2 text-[13px] text-white shadow-lg"
+          style={{ left: `calc((100% - ${right}) / 2)` }}
+        >
           <FastForward className="h-4 w-4 text-bili-pink" />
           {toast.text}
           {toast.undoTo !== undefined && (

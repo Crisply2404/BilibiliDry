@@ -1,6 +1,6 @@
 import { AlertTriangle, BookOpen, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Loader2, Search, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
-import { heatmap } from '../core/playback';
+import { heatmap, segmentStats } from '../core/playback';
 import type { Trace } from '../core/trace/tracer';
 import { traceTotals } from '../core/trace/tracer';
 import { formatTime } from '../core/transcript/captions';
@@ -172,14 +172,13 @@ export function OfficialSummaryView({ official, onSeek }: { official: OfficialSu
 
 export function DigestView({ digest, segments, onSeek, stats = true }: { digest: VideoDigest | null; segments: Segment[]; onSeek: SeekFn; stats?: boolean }) {
   const highlights = segments.filter((s) => digest?.highlightIds.includes(s.id));
-  const waterSec = segments.filter((s) => s.kind === 'water').reduce((a, s) => a + s.end - s.start, 0);
-  const total = segments.length ? segments[segments.length - 1].end - segments[0].start : 0;
+  const { waterSec, dryShare } = segmentStats(segments);
   return (
     <div className="space-y-4">
       {digest?.tldr && <p className="text-[13px] leading-relaxed text-slate-700">{digest.tldr}</p>}
-      {stats && total > 0 && (
+      {stats && dryShare !== null && (
         <div className="flex flex-wrap gap-2 text-[11px]">
-          <span className="chip bg-bili-pink/10 text-bili-pink">干货 {Math.round(((total - waterSec) / total) * 100)}%</span>
+          <span className="chip bg-bili-pink/10 text-bili-pink">干货 {Math.round(dryShare * 100)}%</span>
           <span className="chip bg-slate-100 text-slate-500">可跳过 {formatTime(waterSec)}</span>
           <span className="chip bg-slate-100 text-slate-500">{segments.length} 个片段</span>
         </div>
