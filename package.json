@@ -1,7 +1,7 @@
 {
   "name": "bilibilidry",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "B 站长视频 AI 助手：干货热力图、跳过注水、带时间戳引用的视频问答 Agent、跨视频知识库（BYOK，数据只存本地）",
   "type": "module",
   "license": "MIT",
